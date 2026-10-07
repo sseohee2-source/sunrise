@@ -1,0 +1,10 @@
+__pycache__/
+*.pyc
+.pytest_cache/
+build/
+dist/
+*.spec
+# 실행 시 생성되는 사용자 데이터
+/사용료기준.xlsx
+/견적데이터/
+/견적서PDF/

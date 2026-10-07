@@ -1,0 +1,59 @@
+name: Windows exe 빌드
+
+on:
+  push:
+    branches: ["**"]
+    paths:
+      - "quote_app/**"
+      - "run.py"
+      - "requirements.txt"
+      - "tests/**"
+      - ".github/workflows/build-exe.yml"
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: 패키지 설치
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt pyinstaller pytest
+
+      - name: 계산 테스트
+        run: python -m pytest -q tests
+
+      - name: exe 빌드
+        run: >
+          pyinstaller --noconfirm --onefile --windowed
+          --name 연수원견적
+          --add-data "quote_app/assets;quote_app/assets"
+          run.py
+
+      - name: 배포 폴더 구성
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force release | Out-Null
+          Copy-Item dist/연수원견적.exe release/
+          Copy-Item docs/사용설명서.md release/
+          python -c "from quote_app.rates import default_book, save_book; save_book(default_book(), 'release/사용료기준.xlsx')"
+
+      - name: exe 실행 확인 (기준 파일 생성 여부)
+        shell: pwsh
+        run: |
+          $p = Start-Process release/연수원견적.exe -PassThru
+          Start-Sleep -Seconds 15
+          if ($p.HasExited) { throw "exe가 실행 직후 종료되었습니다 (exit $($p.ExitCode))" }
+          Stop-Process -Id $p.Id -Force
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: 연수원견적-windows
+          path: release/
+          retention-days: 90
