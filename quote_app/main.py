@@ -684,6 +684,7 @@ class RateBookDialog(QDialog):
         w = QWidget()
         lv = QVBoxLayout(w)
         self.rooms = QTableWidget(0, len(self.ROOM_COLS))
+        self.rooms.itemChanged.connect(lambda it: self._fmt_money(it, (6, 7)))
         self.rooms.setHorizontalHeaderLabels(self.ROOM_COLS)
         for c, wd in enumerate([110, 80, 60, 80, 80, 200, 95, 95, 70, 220]):
             self.rooms.setColumnWidth(c, wd)
@@ -706,11 +707,12 @@ class RateBookDialog(QDialog):
         w = QWidget()
         lv = QVBoxLayout(w)
         self.dorms = QTableWidget(0, 2)
+        self.dorms.itemChanged.connect(lambda it: self._fmt_money(it, (1,)))
         self.dorms.setHorizontalHeaderLabels(["객실 구분", "1박 사용료"])
         self.dorms.setColumnWidth(0, 250)
         self.dorms.setColumnWidth(1, 120)
         for d in self.book.dorms:
-            self._add_simple(self.dorms, [d.name, str(d.fee)])
+            self._add_simple(self.dorms, [d.name, money(d.fee)])
         lv.addWidget(self.dorms)
         hb = QHBoxLayout()
         b = QPushButton("객실 구분 추가")
@@ -783,8 +785,8 @@ class RateBookDialog(QDialog):
             g.addItem(room.group)
         g.setCurrentText(room.group)
         t.setCellWidget(r, 5, g)
-        t.setItem(r, 6, QTableWidgetItem(str(room.base_fee)))
-        t.setItem(r, 7, QTableWidgetItem(str(room.extra_fee)))
+        t.setItem(r, 6, QTableWidgetItem(money(room.base_fee)))
+        t.setItem(r, 7, QTableWidgetItem(money(room.extra_fee)))
         chk = QTableWidgetItem()
         chk.setFlags(Qt.ItemIsEnabled | Qt.ItemIsUserCheckable | Qt.ItemIsSelectable)
         chk.setCheckState(Qt.Checked if room.available else Qt.Unchecked)
@@ -794,12 +796,26 @@ class RateBookDialog(QDialog):
         def on_group(text, row_item=t.item(r, 0)):
             row = row_item.row()
             if text in GROUP_FEES:
-                t.item(row, 6).setText(str(GROUP_FEES[text][0]))
-                t.item(row, 7).setText(str(GROUP_FEES[text][1]))
+                t.item(row, 6).setText(money(GROUP_FEES[text][0]))
+                t.item(row, 7).setText(money(GROUP_FEES[text][1]))
         g.currentTextChanged.connect(on_group)
         if room.name == "":
             t.scrollToBottom()
             t.setCurrentCell(r, 0)
+
+    @staticmethod
+    def _fmt_money(item: QTableWidgetItem, cols):
+        """요금 칸은 천 단위 쉼표로 표시하고 오른쪽 정렬 (예: 150000 → 150,000)."""
+        if item.column() not in cols:
+            return
+        d = digits(item.text())
+        new = money(int(d)) if d else item.text()
+        t = item.tableWidget()
+        t.blockSignals(True)
+        if new != item.text():
+            item.setText(new)
+        item.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        t.blockSignals(False)
 
     @staticmethod
     def _add_simple(t: QTableWidget, vals):
