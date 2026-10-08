@@ -1417,6 +1417,26 @@ class MainWindow(QMainWindow):
             self.current_rev = None
             q.revision = "01"
             as_new = False
+        # 대관기간이 지금 열린 견적과 다르면 다른 대관으로 볼지 확인 (기본: 새 견적 건으로 따로 저장)
+        base = self.case.version(self.current_rev) if self.current_rev else None
+        if base and (base.quote.start_date, base.quote.end_date) != (q.start_date, q.end_date):
+            fmt = lambda a, b: f"{a:%Y.%m.%d} ~ {b:%Y.%m.%d}" if a and b else "-"  # noqa: E731
+            box = QMessageBox(self)
+            box.setWindowTitle("대관기간 변경")
+            box.setText(f"대관기간이 기존 견적과 다릅니다.\n\n기존: {fmt(base.quote.start_date, base.quote.end_date)}\n"
+                        f"변경: {fmt(q.start_date, q.end_date)}\n\n다른 대관이면 새 견적으로 따로 저장합니다.")
+            b_new = box.addButton("다른 대관 → 새 견적으로 저장", QMessageBox.AcceptRole)
+            b_same = box.addButton("같은 대관의 일정 변경 → 이 견적에 저장", QMessageBox.AcceptRole)
+            box.addButton("취소", QMessageBox.RejectRole)
+            box.setDefaultButton(b_new)
+            box.exec()
+            if box.clickedButton() is b_new:
+                self.case = QuoteCase()
+                self.current_rev = None
+                q.revision = "01"
+                as_new = False
+            elif box.clickedButton() is not b_same:
+                return False
         if as_new and (self.current_rev is None or self.case.is_archived()):
             as_new = False      # 첫 저장은 01차, 보관 견적은 현재(최종) 견적에 덮어쓰기
         if as_new:
