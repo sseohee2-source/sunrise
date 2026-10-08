@@ -1404,6 +1404,19 @@ class MainWindow(QMainWindow):
         q = self.collect()
         if not self.validate(q):
             return False
+        # 사업자번호가 기존 견적 건과 다르면 다른 업체 → 새 견적 건(01차)으로 따로 저장
+        old_biz = {normalize_biz(v.quote.biz_no) for v in self.case.versions} - {""}
+        new_biz = normalize_biz(q.biz_no)
+        if self.case.versions and new_biz and old_biz and new_biz not in old_biz:
+            old = self.case.versions[-1].quote
+            QMessageBox.information(
+                self, "다른 업체 견적으로 저장",
+                f"사업자번호가 기존 견적({old.company or '-'}, {fmt_biz_no(old.biz_no)})과 다릅니다.\n"
+                f"'{q.company or '-'}'의 새 견적(01차)으로 따로 저장합니다. 기존 견적은 그대로 남습니다.")
+            self.case = QuoteCase()
+            self.current_rev = None
+            q.revision = "01"
+            as_new = False
         if as_new and (self.current_rev is None or self.case.is_archived()):
             as_new = False      # 첫 저장은 01차, 보관 견적은 현재(최종) 견적에 덮어쓰기
         if as_new:
