@@ -188,3 +188,17 @@ def test_live_number_format():
     assert live_phone("021234567") == "02-123-4567"
     assert live_phone("0212345678") == "02-1234-5678"
     assert live_phone("15881234") == "1588-1234"
+
+
+def test_facility_sort_date_then_room_order():
+    import copy
+    book = copy.deepcopy(BOOK)
+    uses = [FacilityUse(date(2026, 1, 6), "205", time(9), time(12)),
+            FacilityUse(date(2026, 1, 5), "대강당", time(9), time(12)),
+            FacilityUse(date(2026, 1, 5), "301", time(13), time(15)),
+            FacilityUse(date(2026, 1, 5), "205", time(9), time(12))]
+    order = lambda b: [(u.use_date.day, u.room) for u in sorted(uses, key=b.facility_sort_key)]  # noqa: E731
+    assert order(book) == [(5, "205"), (5, "301"), (5, "대강당"), (6, "205")]
+    # 기준 관리에서 대강당을 맨 앞으로 옮기면 같은 날짜 안에서 대강당이 먼저
+    book.rooms.insert(0, book.rooms.pop(next(i for i, r in enumerate(book.rooms) if r.name == "대강당")))
+    assert order(book) == [(5, "대강당"), (5, "205"), (5, "301"), (6, "205")]

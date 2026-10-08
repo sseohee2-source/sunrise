@@ -8,7 +8,7 @@ import tempfile
 import traceback
 from datetime import date, time, timedelta
 
-from PySide6.QtCore import QDate, QLocale, Qt, QTime, QUrl
+from PySide6.QtCore import QDate, QLocale, Qt, QTime, QTimer, QUrl
 from PySide6.QtGui import QAction, QDesktopServices, QFont, QIcon, QImage, QKeySequence, QPixmap
 from PySide6.QtWidgets import (QAbstractItemView, QApplication, QCheckBox, QComboBox, QDateEdit, QDialog,
                                QDialogButtonBox, QFileDialog, QFormLayout, QFrame, QGridLayout, QGroupBox,
@@ -218,6 +218,29 @@ class FacilityTable(QTableWidget):
         for r in range(self.rowCount()):
             self.apply_rate_mode(r)
             self.refresh_row(r)
+
+    def sort_rows(self, focus_row: int | None = None) -> int | None:
+        """이용일자 → [시설·요금 기준 관리] 호실 순서 → 시작시간 으로 줄을 다시 정렬한다.
+        focus_row 로 준 줄이 정렬 후 몇 번째 줄이 되었는지 돌려준다."""
+        uses = [self.row_use(r) for r in range(self.rowCount())]
+        order = sorted(range(len(uses)), key=lambda i: self.win.book.facility_sort_key(uses[i]))
+        if order == list(range(len(uses))):
+            return focus_row
+        col = max(0, self.currentColumn())
+        was = self.win._loading
+        self.win._loading = True
+        try:
+            self.setRowCount(0)
+            for i in order:
+                self.add_row(uses[i])
+        finally:
+            self.win._loading = was
+        if focus_row is None:
+            return None
+        new = order.index(focus_row)
+        self.setCurrentCell(new, col)
+        self.scrollToItem(self.item(new, self.C_BLD))
+        return new
 
 
 # ---------------------------------------------------------------- 기숙사 사용 표
@@ -692,14 +715,20 @@ class RateBookDialog(QDialog):
             self._add_room_row(r)
         lv.addWidget(self.rooms)
         hb = QHBoxLayout()
-        b_add = QPushButton("시설 추가")
-        b_add.clicked.connect(lambda: self._add_room_row(None))
+        b_add = QPushButton("시설 추가 (선택한 줄 아래)")
+        b_add.clicked.connect(self._insert_room)
+        b_up = QPushButton("▲ 위로")
+        b_up.clicked.connect(lambda: self._move_room(-1))
+        b_down = QPushButton("▼ 아래로")
+        b_down.clicked.connect(lambda: self._move_room(1))
         b_del = QPushButton("선택 시설 삭제")
         b_del.clicked.connect(lambda: self._del_rows(self.rooms))
         hb.addWidget(b_add)
         hb.addWidget(b_del)
+        hb.addWidget(b_up)
+        hb.addWidget(b_down)
         hb.addStretch()
-        hb.addWidget(QLabel("※ '대관가능' 체크를 해제하면 견적 입력 목록에서 숨겨집니다. 규모를 바꾸면 규정 요금이 자동 입력됩니다."))
+        hb.addWidget(QLabel("※ 이 순서대로 견적 화면·견적서의 시설이 정렬됩니다. '대관가능' 해제 시 입력 목록에서 숨김."))
         lv.addLayout(hb)
         tabs.addTab(w, "시설")
 
@@ -772,9 +801,35 @@ class RateBookDialog(QDialog):
         bb.rejected.connect(self.reject)
         v.addWidget(bb)
 
-    def _add_room_row(self, room: Room | None):
+    def _insert_room(self):
+        cur = self.rooms.currentRow()
+        self._add_room_row(None, at=cur + 1 if cur >= 0 else None)
+
+    def _read_room_row(self, r: int) -> Room:
+        def num(c):
+            d = digits(self._txt(self.rooms, r, c))
+            return int(d) if d else 0
+        return Room(self._txt(self.rooms, r, 0), self._txt(self.rooms, r, 1), self._txt(self.rooms, r, 2),
+                    self._txt(self.rooms, r, 3), self._txt(self.rooms, r, 4),
+                    self.rooms.cellWidget(r, 5).currentText(), num(6), num(7),
+                    self.rooms.item(r, 8).checkState() == Qt.Checked, self._txt(self.rooms, r, 9))
+
+    def _move_room(self, delta: int):
+        """선택한 시설을 한 칸 위/아래로 옮긴다 (저장하면 이 순서로 정렬 기준이 됨)."""
         t = self.rooms
-        r = t.rowCount()
+        r = t.currentRow()
+        target = r + delta
+        if r < 0 or not 0 <= target < t.rowCount():
+            return
+        col = max(0, t.currentColumn())
+        room = self._read_room_row(r)
+        t.removeRow(r)
+        self._add_room_row(room, at=target)
+        t.setCurrentCell(target, col)
+
+    def _add_room_row(self, room: Room | None, at: int | None = None):
+        t = self.rooms
+        r = t.rowCount() if at is None else at
         t.insertRow(r)
         room = room or Room("", "", "", "", "강의실", FACILITY_GROUPS[0], *GROUP_FEES[FACILITY_GROUPS[0]])
         for c, val in enumerate([room.name, room.building, room.floor, room.capacity, room.kind]):
@@ -800,7 +855,7 @@ class RateBookDialog(QDialog):
                 t.item(row, 7).setText(money(GROUP_FEES[text][1]))
         g.currentTextChanged.connect(on_group)
         if room.name == "":
-            t.scrollToBottom()
+            t.scrollToItem(t.item(r, 0))
             t.setCurrentCell(r, 0)
 
     @staticmethod
@@ -1033,7 +1088,7 @@ class MainWindow(QMainWindow):
         self.fac = FacilityTable(self)
         lv.addWidget(self.fac)
         hb = QHBoxLayout()
-        for text, slot in (("행 추가", lambda: self.fac.add_row()), ("여러 날 한 번에 추가", self.add_multi_day),
+        for text, slot in (("행 추가", self.add_fac_row), ("여러 날 한 번에 추가", self.add_multi_day),
                            ("선택 행 복제(다음 날)", self.dup_fac_rows), ("선택 행 삭제", lambda: self.del_rows(self.fac))):
             b = QPushButton(text)
             b.clicked.connect(slot)
@@ -1147,7 +1202,7 @@ class MainWindow(QMainWindow):
             self.final_chk.setChecked(q.final)
             self.memo.setText(q.memo)
             self.fac.setRowCount(0)
-            for u in q.facilities:
+            for u in sorted(q.facilities, key=self.book.facility_sort_key):
                 self.fac.add_row(u)
             self.dorm.setRowCount(0)
             for u in q.dorms:
@@ -1169,6 +1224,10 @@ class MainWindow(QMainWindow):
             for r in range(table.rowCount()):
                 if sender in [table.cellWidget(r, c) for c in range(table.columnCount())]:
                     table.refresh_row(r)
+                    if table is self.fac and sender in (table.cellWidget(r, table.C_DATE),
+                                                        table.cellWidget(r, table.C_ROOM)):
+                        # 날짜·호실을 바꾸면 자동 정렬 (위젯 신호 처리가 끝난 뒤 실행)
+                        QTimer.singleShot(0, lambda row=r: self.fac.sort_rows(row))
         self.recalc()
         self.set_dirty(True)
 
@@ -1432,6 +1491,12 @@ class MainWindow(QMainWindow):
                 self.e_bizno.setText(live_biz_no(src.biz_no))
             self.statusBar().showMessage("이전 견적의 기업정보를 가져왔습니다.", 5000)
 
+    def add_fac_row(self):
+        self.fac.add_row()
+        self.fac.sort_rows(self.fac.rowCount() - 1)
+        self.recalc()
+        self.set_dirty(True)
+
     def add_multi_day(self):
         dlg = MultiDayDialog(self)
         if not dlg.exec():
@@ -1439,6 +1504,7 @@ class MainWindow(QMainWindow):
         for d in dlg.days():
             self.fac.add_row(FacilityUse(d, dlg.room.currentText(), pyt(dlg.t1.time()), pyt(dlg.t2.time()),
                                          self.uniform_rate()))
+        self.fac.sort_rows()
         self.recalc()
         self.set_dirty(True)
 
@@ -1450,6 +1516,7 @@ class MainWindow(QMainWindow):
             u = self.fac.row_use(r)
             u.use_date += timedelta(days=1)
             self.fac.add_row(u)
+        self.fac.sort_rows()
         self.recalc()
         self.set_dirty(True)
 

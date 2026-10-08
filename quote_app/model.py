@@ -101,6 +101,14 @@ class RateBook:
     def rentable_rooms(self) -> list[Room]:
         return [r for r in self.rooms if r.available]
 
+    def room_order(self, name: str) -> int:
+        """[시설·요금 기준 관리]의 호실 순서 (정렬용). 목록에 없는 호실은 맨 뒤."""
+        return next((i for i, r in enumerate(self.rooms) if r.name == name), len(self.rooms))
+
+    def facility_sort_key(self, u: "FacilityUse"):
+        """시설 사용 내역 정렬: 이용일자 → 호실 순서 → 시작시간."""
+        return (u.use_date, self.room_order(u.room) if u.room else len(self.rooms) + 1, u.start)
+
 
 # ---------------------------------------------------------------- 입력 데이터
 @dataclass

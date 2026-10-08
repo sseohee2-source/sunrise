@@ -409,7 +409,7 @@ def _detail_pages(q: Quote, book: RateBook, res: QuoteResult, S: _Styles):
     scale = CONTENT_W / (sum(widths) * mm)
     widths = [w * mm * scale for w in widths]
     rows = [head]
-    lines = sorted(res.facility_lines, key=lambda ln: (ln.use.use_date, ln.use.start, ln.use.room))
+    lines = sorted(res.facility_lines, key=lambda ln: book.facility_sort_key(ln.use))
     for i, ln in enumerate(lines, 1):
         r = ln.room
         row = [str(i), fmt_date(ln.use.use_date, short=True), ln.use.room,
