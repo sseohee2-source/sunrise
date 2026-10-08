@@ -128,7 +128,7 @@ class FacilityTable(QTableWidget):
         self.verticalHeader().setDefaultSectionSize(30)
         h = self.horizontalHeader()
         h.setSectionResizeMode(QHeaderView.Interactive)
-        for c, w in enumerate([150, 130, 70, 50, 70, 190, 90, 90, 70, 90, 80, 95, 85, 90]):
+        for c, w in enumerate([140, 120, 60, 45, 62, 165, 82, 82, 62, 85, 75, 90, 72, 85]):
             self.setColumnWidth(c, w)
         self.setMinimumHeight(220)
 
@@ -232,7 +232,7 @@ class DormTable(QTableWidget):
         self.setHorizontalHeaderLabels(self.COLS)
         self.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.verticalHeader().setDefaultSectionSize(30)
-        for c, w in enumerate([150, 150, 200, 75, 90, 90, 95, 85, 100, 85, 90]):
+        for c, w in enumerate([140, 140, 175, 70, 80, 80, 88, 80, 95, 72, 85]):
             self.setColumnWidth(c, w)
         self.setMinimumHeight(150)
 
@@ -1006,7 +1006,8 @@ class MainWindow(QMainWindow):
             self.discount.addItem(d.name)
         self.discount.setMinimumContentsLength(40)
         self.discount.setSizeAdjustPolicy(QComboBox.AdjustToMinimumContentsLengthWithIcon)
-        grid.addWidget(self.discount, 4, 1, 1, 5)
+        self.fit_discount_popup()
+        grid.addWidget(self.discount, 4, 1, 1, 6)
         self.discount_info = QLabel()
         self.discount_info.setWordWrap(True)
         self.discount_info.setStyleSheet("color:#1F3864")
@@ -1087,6 +1088,16 @@ class MainWindow(QMainWindow):
             #sumbar{background:#F3F6FB;border:1px solid #1F3864;border-radius:4px}
             QToolBar QToolButton{padding:6px 10px;font-weight:bold}
         """)
+
+    def fit_discount_popup(self):
+        """할인대상 목록이 펼쳐질 때 긴 항목도 잘리지 않게 목록 폭을 가장 긴 항목에 맞춘다."""
+        view = self.discount.view()
+        view.setTextElideMode(Qt.ElideNone)
+        fm = view.fontMetrics()
+        view.setMinimumWidth(max((fm.horizontalAdvance(self.discount.itemText(i))
+                                  for i in range(self.discount.count())), default=0) + 50)
+        for i in range(self.discount.count()):
+            self.discount.setItemData(i, self.discount.itemText(i), Qt.ToolTipRole)
 
     # ---- 상태 도우미
     def default_date(self) -> date:
@@ -1171,6 +1182,7 @@ class MainWindow(QMainWindow):
         self.set_dirty(True)
 
     def update_discount_info(self):
+        self.discount.setToolTip(self.discount.currentText())
         d = self.current_discount()
         if d is None:
             self.discount_info.setText("")
@@ -1469,6 +1481,7 @@ class MainWindow(QMainWindow):
         self.discount.clear()
         for d in discount_choices(self.book):
             self.discount.addItem(d.name)
+        self.fit_discount_popup()
         self._loading = False
         self.load_quote(q)
         self.set_dirty(dirty)
@@ -1494,7 +1507,7 @@ def main():
     except Exception as e:  # noqa: BLE001
         QMessageBox.critical(None, "실행 오류", f"기준 파일을 읽는 중 오류가 발생했습니다.\n{e}\n\n{traceback.format_exc()}")
         return 1
-    w.show()
+    w.showMaximized()   # 처음 켤 때 화면 전체로 열어 할인대상·할인률 칸까지 잘리지 않게
     return app.exec()
 
 
