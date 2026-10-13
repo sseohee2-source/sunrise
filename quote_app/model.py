@@ -118,6 +118,8 @@ class FacilityUse:
     start: time
     end: time
     rate: float = 0.0     # 할인률 (0~1)
+    # 저장 당시 요금·호실 정보 (발행 당시 기준 고정). None 이면 현재 [시설·요금 기준]으로 계산
+    snap: dict | None = None
 
 
 @dataclass
@@ -127,6 +129,7 @@ class DormUse:
     dorm: str
     count: int = 1        # 객실 수
     rate: float = 0.0
+    fee: int | None = None   # 저장 당시 1박 요금 (None 이면 현재 기준)
 
 
 @dataclass
@@ -179,9 +182,9 @@ class Quote:
         q.end_date = dt(d.get("end_date"))
         q.quote_date = dt(d.get("quote_date")) or date.today()
         q.facilities = [FacilityUse(dt(f["use_date"]), str(f["room"]), tm(f["start"]), tm(f["end"]),
-                                    float(f.get("rate", 0))) for f in d.get("facilities", [])]
+                                    float(f.get("rate", 0)), f.get("snap")) for f in d.get("facilities", [])]
         q.dorms = [DormUse(dt(x["check_in"]), dt(x["check_out"]), x["dorm"], int(x.get("count", 1)),
-                           float(x.get("rate", 0))) for x in d.get("dorms", [])]
+                           float(x.get("rate", 0)), x.get("fee")) for x in d.get("dorms", [])]
         return q
 
 
@@ -308,10 +311,73 @@ class QuoteResult:
     grand_total: int            # E = C - D
 
 
+# ---------------------------------------------------------------- 발행 당시 기준 고정
+SNAP_KEYS = ("building", "floor", "capacity", "kind", "group", "base_fee", "extra_fee")
+
+
+def room_snapshot(room: Room) -> dict:
+    return {k: getattr(room, k) for k in SNAP_KEYS}
+
+
+def line_room(u: FacilityUse, book: RateBook) -> Room | None:
+    """저장 당시 기준이 있으면 그 요금·정보로, 없으면 현재 기준으로 계산할 호실 정보."""
+    if u.snap:
+        return Room(u.room, **{k: u.snap.get(k, "" if k in ("kind",) else 0) for k in SNAP_KEYS})
+    return book.room(u.room)
+
+
+def line_dorm(u: DormUse, book: RateBook) -> DormType | None:
+    if u.fee is not None:
+        return DormType(u.dorm, u.fee)
+    return book.dorm(u.dorm)
+
+
+def freeze_prices(q: Quote, book: RateBook, reprice: bool) -> None:
+    """저장 시 요금을 견적에 고정한다.
+    reprice=True (새 견적·새 차수): 지금의 [시설·요금 기준]과 할인율로 다시 매긴다.
+    reprice=False (현재 차수 덮어쓰기): 이미 고정된 줄은 그대로 두고, 새 줄만 현재 기준으로 고정한다."""
+    disc = book.discount(q.discount)
+    uniform = None if disc is None or disc.rate is None else disc.rate
+    if q.discount == NO_DISCOUNT:
+        uniform = 0.0
+    for u in q.facilities:
+        if reprice or not u.snap:
+            room = book.room(u.room)
+            u.snap = room_snapshot(room) if room else None
+            if reprice and uniform is not None:
+                u.rate = uniform
+    for u in q.dorms:
+        if reprice or u.fee is None:
+            d = book.dorm(u.dorm)
+            u.fee = d.fee if d else None
+            if reprice and uniform is not None:
+                u.rate = uniform
+
+
+def price_differences(q: Quote, book: RateBook) -> list[str]:
+    """저장 당시 기준과 현재 기준이 다른 항목 설명 (없으면 빈 목록)."""
+    out = []
+    for u in q.facilities:
+        cur = book.room(u.room)
+        if u.snap and cur and (u.snap["base_fee"], u.snap["extra_fee"]) != (cur.base_fee, cur.extra_fee):
+            out.append(f"{u.room}: 기본 {u.snap['base_fee']:,}/추가 {u.snap['extra_fee']:,} → "
+                       f"기본 {cur.base_fee:,}/추가 {cur.extra_fee:,}")
+    for u in q.dorms:
+        cur = book.dorm(u.dorm)
+        if u.fee is not None and cur and u.fee != cur.fee:
+            out.append(f"기숙사 {u.dorm}: 1박 {u.fee:,} → {cur.fee:,}")
+    disc = book.discount(q.discount)
+    if disc is not None and disc.rate is not None:
+        old = {round(u.rate, 6) for u in [*q.facilities, *q.dorms]}
+        if old and old != {round(disc.rate, 6)}:
+            out.append(f"할인율: {', '.join(f'{r * 100:g}%' for r in sorted(old))} → {disc.rate * 100:g}%")
+    return list(dict.fromkeys(out))
+
+
 def calculate(q: Quote, book: RateBook) -> QuoteResult:
     f_lines: list[FacilityLine] = []
     for u in q.facilities:
-        room = book.room(u.room)
+        room = line_room(u, book)
         hours = billable_hours(u.start, u.end)
         fee = facility_fee(room, hours) if room else 0
         vat = won(fee * VAT_RATE)
@@ -320,7 +386,7 @@ def calculate(q: Quote, book: RateBook) -> QuoteResult:
 
     d_lines: list[DormLine] = []
     for u in q.dorms:
-        dorm = book.dorm(u.dorm)
+        dorm = line_dorm(u, book)
         nights = max(0, (u.check_out - u.check_in).days)
         fee = dorm.fee * nights * u.count if dorm else 0
         vat = won(fee * VAT_RATE)

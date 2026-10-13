@@ -18,7 +18,8 @@ from PySide6.QtWidgets import (QAbstractItemView, QApplication, QCheckBox, QComb
 
 from . import __version__
 from .model import (FACILITY_GROUPS, NO_DISCOUNT, VAT_RATE, DormUse, FacilityUse, Quote, RateBook, Room, Supplier,
-                    billable_hours, calculate, digits, facility_fee, fmt_biz_no, live_biz_no, live_phone, won)
+                    billable_hours, calculate, digits, facility_fee, fmt_biz_no, line_dorm, line_room,
+                    live_biz_no, live_phone, price_differences, won)
 from .pdf_quote import build_quote_pdf, default_pdf_name, stamp_file
 from .rates import (GROUP_FEES, SUPPLIER_LABELS, app_dir, discount_choices, is_family, load_or_create,
                     resource_path, save_book)
@@ -145,6 +146,7 @@ class FacilityTable(QTableWidget):
         return cb
 
     def add_row(self, u: FacilityUse | None = None):
+        is_new = u is None
         if u is None:
             prev = self.row_use(self.rowCount() - 1) if self.rowCount() else None
             u = FacilityUse(prev.use_date if prev else (self.win.default_date()), "",
@@ -168,31 +170,37 @@ class FacilityTable(QTableWidget):
             self.setItem(r, c, ro_item("", Qt.AlignCenter))
         for c in (self.C_HOURS, self.C_FEE, self.C_VAT, self.C_TOTAL, self.C_DISC):
             self.setItem(r, c, ro_item())
+        # 저장 당시 요금(발행 당시 기준). 호실을 바꾸면 더 이상 쓰지 않는다.
+        self.item(r, self.C_BLD).setData(Qt.UserRole, (u.room, u.snap) if u.snap else None)
         for w, sig in ((de, de.dateChanged), (cb, cb.currentTextChanged), (ts, ts.timeChanged),
                        (te, te.timeChanged), (rate, rate.currentTextChanged)):
             sig.connect(self.win.on_changed)
-        self.apply_rate_mode(r)
+        self.apply_rate_mode(r, force=is_new)
         self.refresh_row(r)
         fit_columns(self, r)
 
     def row_use(self, r: int) -> FacilityUse:
-        return FacilityUse(pyd(self.cellWidget(r, self.C_DATE).date()),
-                           self.cellWidget(r, self.C_ROOM).currentText(),
+        room = self.cellWidget(r, self.C_ROOM).currentText()
+        kept = self.item(r, self.C_BLD).data(Qt.UserRole) if self.item(r, self.C_BLD) else None
+        snap = kept[1] if kept and kept[0] == room else None
+        return FacilityUse(pyd(self.cellWidget(r, self.C_DATE).date()), room,
                            pyt(self.cellWidget(r, self.C_START).time()),
                            pyt(self.cellWidget(r, self.C_END).time()),
-                           parse_rate(self.cellWidget(r, self.C_RATE).currentText()))
+                           parse_rate(self.cellWidget(r, self.C_RATE).currentText()), snap)
 
     def uses(self) -> list[FacilityUse]:
         return [self.row_use(r) for r in range(self.rowCount()) if self.cellWidget(r, self.C_ROOM).currentText()]
 
     def refresh_row(self, r: int):
         u = self.row_use(r)
-        room: Room | None = self.win.book.room(u.room)
+        room: Room | None = line_room(u, self.win.book)
         self.item(r, self.C_BLD).setText(room.building if room else "")
         self.item(r, self.C_FLOOR).setText(room.floor if room else "")
         self.item(r, self.C_CAP).setText(room.capacity if room else "")
         self.item(r, self.C_GROUP).setText(room.group if room else "")
         tip = f"비고: {room.note}" if room and room.note else ""
+        if u.snap:
+            tip = (tip + "\n" if tip else "") + "저장 당시 요금 기준 적용"
         self.cellWidget(r, self.C_ROOM).setToolTip(tip)
         hours = billable_hours(u.start, u.end)
         fee = facility_fee(room, hours) if room else 0
@@ -205,18 +213,20 @@ class FacilityTable(QTableWidget):
         self.item(r, self.C_TOTAL).setText(money(fee + vat) if room else "")
         self.item(r, self.C_DISC).setText(money(won((fee + vat) * u.rate)) if room and u.rate else "")
 
-    def apply_rate_mode(self, r: int):
+    def apply_rate_mode(self, r: int, force: bool = True):
+        """할인대상이 일괄 할인이면 할인률 칸을 잠근다. force=True 면 현재 할인율로 맞춘다
+        (저장된 견적을 불러올 때는 force=False 로 저장 당시 할인율을 유지)."""
         cb: QComboBox = self.cellWidget(r, self.C_RATE)
         manual = self.win.family_mode()
         cb.setEnabled(manual)
-        if not manual:
+        if not manual and force:
             cb.blockSignals(True)
             cb.setCurrentText(rate_text(self.win.uniform_rate()))
             cb.blockSignals(False)
 
-    def refresh_all(self):
+    def refresh_all(self, force: bool = True):
         for r in range(self.rowCount()):
-            self.apply_rate_mode(r)
+            self.apply_rate_mode(r, force)
             self.refresh_row(r)
 
     def sort_rows(self, focus_row: int | None = None) -> int | None:
@@ -260,6 +270,7 @@ class DormTable(QTableWidget):
         self.setMinimumHeight(150)
 
     def add_row(self, u: DormUse | None = None):
+        is_new = u is None
         if u is None:
             d = self.win.default_date()
             u = DormUse(d, d + timedelta(days=1), self.win.book.dorms[0].name if self.win.book.dorms else "", 1,
@@ -287,24 +298,29 @@ class DormTable(QTableWidget):
             self.setCellWidget(r, c, w)
         for c in (self.C_NIGHTS, self.C_UNIT, self.C_FEE, self.C_VAT, self.C_TOTAL, self.C_DISC):
             self.setItem(r, c, ro_item())
+        # 저장 당시 1박 요금 (객실 구분을 바꾸면 더 이상 쓰지 않음)
+        self.item(r, self.C_UNIT).setData(Qt.UserRole, (u.dorm, u.fee) if u.fee is not None else None)
         for sig in (di.dateChanged, do.dateChanged, cb.currentTextChanged, sp.valueChanged,
                     rate.currentTextChanged):
             sig.connect(self.win.on_changed)
-        self.apply_rate_mode(r)
+        self.apply_rate_mode(r, force=is_new)
         self.refresh_row(r)
         fit_columns(self, r)
 
     def row_use(self, r: int) -> DormUse:
+        name = self.cellWidget(r, self.C_TYPE).currentText()
+        kept = self.item(r, self.C_UNIT).data(Qt.UserRole) if self.item(r, self.C_UNIT) else None
+        fee = kept[1] if kept and kept[0] == name else None
         return DormUse(pyd(self.cellWidget(r, self.C_IN).date()), pyd(self.cellWidget(r, self.C_OUT).date()),
-                       self.cellWidget(r, self.C_TYPE).currentText(), self.cellWidget(r, self.C_COUNT).value(),
-                       parse_rate(self.cellWidget(r, self.C_RATE).currentText()))
+                       name, self.cellWidget(r, self.C_COUNT).value(),
+                       parse_rate(self.cellWidget(r, self.C_RATE).currentText()), fee)
 
     def uses(self) -> list[DormUse]:
         return [self.row_use(r) for r in range(self.rowCount())]
 
     def refresh_row(self, r: int):
         u = self.row_use(r)
-        dorm = self.win.book.dorm(u.dorm)
+        dorm = line_dorm(u, self.win.book)
         nights = (u.check_out - u.check_in).days
         fee = dorm.fee * max(0, nights) * u.count if dorm else 0
         vat = won(fee * VAT_RATE)
@@ -316,18 +332,20 @@ class DormTable(QTableWidget):
         self.item(r, self.C_TOTAL).setText(money(fee + vat))
         self.item(r, self.C_DISC).setText(money(won((fee + vat) * u.rate)) if u.rate else "")
 
-    def apply_rate_mode(self, r: int):
+    def apply_rate_mode(self, r: int, force: bool = True):
+        """할인대상이 일괄 할인이면 할인률 칸을 잠근다. force=True 면 현재 할인율로 맞춘다
+        (저장된 견적을 불러올 때는 force=False 로 저장 당시 할인율을 유지)."""
         cb: QComboBox = self.cellWidget(r, self.C_RATE)
         manual = self.win.family_mode()
         cb.setEnabled(manual)
-        if not manual:
+        if not manual and force:
             cb.blockSignals(True)
             cb.setCurrentText(rate_text(self.win.uniform_rate()))
             cb.blockSignals(False)
 
-    def refresh_all(self):
+    def refresh_all(self, force: bool = True):
         for r in range(self.rowCount()):
-            self.apply_rate_mode(r)
+            self.apply_rate_mode(r, force)
             self.refresh_row(r)
 
 
@@ -1015,6 +1033,19 @@ class MainWindow(QMainWindow):
                                           "padding:5px;color:#7A4A00")
         self.archive_banner.hide()
         root.addWidget(self.archive_banner)
+        # 저장 당시(개정 전) 요금 기준으로 계산된 견적 안내
+        self.price_banner = QFrame()
+        self.price_banner.setStyleSheet("QFrame{background:#EEF4FF;border:1px solid #6F93D6;border-radius:4px}"
+                                        "QLabel{border:0;color:#1F3864}")
+        pb = QHBoxLayout(self.price_banner)
+        self.price_label = QLabel()
+        self.price_label.setWordWrap(True)
+        pb.addWidget(self.price_label, 1)
+        b = QPushButton("현재 기준으로 다시 계산")
+        b.clicked.connect(self.reprice_current)
+        pb.addWidget(b)
+        self.price_banner.hide()
+        root.addWidget(self.price_banner)
 
         # 예약정보
         g = QGroupBox("예약 정보")
@@ -1213,7 +1244,30 @@ class MainWindow(QMainWindow):
         self.update_discount_info()
         self.recalc()
         self.check_biz_history()
+        self.update_price_banner()
         self.set_dirty(False)
+
+    def update_price_banner(self):
+        diffs = price_differences(self.collect(), self.book)
+        if diffs:
+            shown = diffs[:4] + ([f"외 {len(diffs) - 4}건"] if len(diffs) > 4 else [])
+            self.price_label.setText("이 견적은 <b>저장 당시 요금·할인율 기준</b>으로 계산되어 있습니다 "
+                                     "(이후 기준이 변경됨).<br>" + " · ".join(shown) +
+                                     "<br>이전 금액을 유지하려면 그대로 두고, 현재 기준을 적용하려면 오른쪽 버튼을 누르세요.")
+        self.price_banner.setVisible(bool(diffs))
+
+    def reprice_current(self):
+        """저장 당시 요금을 버리고 현재 [시설·요금 기준]과 할인율로 다시 계산 (저장은 담당자가)."""
+        for r in range(self.fac.rowCount()):
+            self.fac.item(r, self.fac.C_BLD).setData(Qt.UserRole, None)
+        for r in range(self.dorm.rowCount()):
+            self.dorm.item(r, self.dorm.C_UNIT).setData(Qt.UserRole, None)
+        self.fac.refresh_all(force=True)
+        self.dorm.refresh_all(force=True)
+        self.recalc()
+        self.set_dirty(True)
+        self.price_banner.hide()
+        self.statusBar().showMessage("현재 요금 기준으로 다시 계산했습니다. 저장해야 견적에 반영됩니다.", 8000)
 
     # ---- 이벤트
     def on_changed(self, *_):
@@ -1443,6 +1497,7 @@ class MainWindow(QMainWindow):
             memo = self.memo.text().strip()
             if memo and self.case.version(self.current_rev) and self.case.version(self.current_rev).quote.memo == memo:
                 q.memo = ""     # 이전 차수의 메모를 그대로 물려받지 않게
+        shown_total = calculate(q, self.book).grand_total
         v = self.case.save_version(q, self.book, as_new=as_new)
         try:
             self.case.save()
@@ -1450,11 +1505,14 @@ class MainWindow(QMainWindow):
             QMessageBox.critical(self, "저장 실패", f"저장할 수 없습니다.\n{e}")
             return False
         self.current_rev = v.quote.revision
-        self._loading = True
-        self.memo.setText(v.quote.memo)
-        self._loading = False
+        self.load_quote(copy.deepcopy(v.quote))     # 고정된 요금으로 화면을 다시 그림
         self.refresh_rev_combo()
         self.set_dirty(False)
+        if v.grand_total != shown_total:
+            QMessageBox.information(
+                self, "현재 요금 기준 적용",
+                f"{'새 견적은' if v.quote.revision == '01' else '새 차수는'} 현재 [시설·요금 기준]과 할인율로 계산됩니다.\n"
+                f"총 견적액이 {shown_total:,}원 → {v.grand_total:,}원으로 바뀌었습니다.")
         self.statusBar().showMessage(f"{v.quote.revision}차 저장 완료 ({'최종' if v.quote.final else '가견적'})", 5000)
         return True
 

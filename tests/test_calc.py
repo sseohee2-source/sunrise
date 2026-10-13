@@ -3,7 +3,7 @@ from datetime import date, time
 
 import pytest
 
-from quote_app.model import DormUse, FacilityUse, Quote, billable_hours, calculate
+from quote_app.model import DormUse, FacilityUse, Quote, billable_hours, calculate, price_differences, won
 from quote_app.rates import default_book, load_book, save_book
 from quote_app.store import QuoteCase
 
@@ -202,3 +202,35 @@ def test_facility_sort_date_then_room_order():
     # 기준 관리에서 대강당을 맨 앞으로 옮기면 같은 날짜 안에서 대강당이 먼저
     book.rooms.insert(0, book.rooms.pop(next(i for i, r in enumerate(book.rooms) if r.name == "대강당")))
     assert order(book) == [(5, "대강당"), (5, "205"), (5, "301"), (6, "205")]
+
+
+def test_saved_quote_keeps_prices_after_rule_change(tmp_path):
+    import copy
+    book = copy.deepcopy(BOOK)
+    q = Quote(company="A", discount="[50%감면]공공기관 및 유관단체",
+              facilities=[FacilityUse(date(2026, 1, 5), "301", time(9), time(18), rate=0.5)],
+              dorms=[DormUse(date(2026, 1, 5), date(2026, 1, 6), "1인실", 2, rate=0.5)])
+    case = QuoteCase()
+    v1 = case.save_version(q, book, as_new=False)
+    old_total = v1.grand_total
+    assert old_total == won((330_000 * 1.1 + 60_000 * 1.1) * 0.5)
+    # 규정 개정: 301호 요금 인상, 기숙사 인상, 감면율 30%
+    book.room("301").base_fee, book.room("301").extra_fee = 200_000, 50_000
+    book.dorm("1인실").fee = 35_000
+    book.discount("[50%감면]공공기관 및 유관단체").rate = 0.3
+    loaded = QuoteCase.load(case.save(str(tmp_path / "c.json")))
+    old_q = loaded.versions[0].quote
+    assert calculate(old_q, book).grand_total == old_total            # 개정 전 견적은 개정 전 금액
+    assert price_differences(old_q, book)                              # 화면에 기준 변경 안내
+    loaded.save_version(Quote.from_dict(old_q.to_dict()), book, as_new=False)   # 덮어쓰기: 그대로
+    assert loaded.versions[0].grand_total == old_total
+    v2 = loaded.save_version(Quote.from_dict(old_q.to_dict()), book, as_new=True)  # 새 차수: 현재 기준
+    assert v2.grand_total == won((200_000 + 6 * 50_000) * 1.1 * 0.7 + 70_000 * 1.1 * 0.7)
+    assert not price_differences(v2.quote, book)
+
+
+def test_old_files_without_snapshot_use_current_rates():
+    q = Quote.from_dict({"facilities": [{"use_date": "2026-01-05", "room": "205", "start": "09:00",
+                                         "end": "12:00", "rate": 0}]})
+    assert q.facilities[0].snap is None
+    assert calculate(q, BOOK).facility_sum.fee == 100_000

@@ -16,7 +16,7 @@ from reportlab.pdfgen import canvas as rl_canvas
 from reportlab.platypus import (Image, KeepTogether, PageBreak, Paragraph, SimpleDocTemplate, Spacer,
                                 Table, TableStyle)
 
-from .model import Quote, QuoteResult, RateBook, calculate, fmt_biz_no, fmt_phone
+from .model import NO_DISCOUNT, Quote, QuoteResult, RateBook, calculate, fmt_biz_no, fmt_phone
 from .rates import is_family, resource_path
 
 FONT = "NanumGothic"
@@ -343,16 +343,14 @@ def _page_one(q: Quote, book: RateBook, res: QuoteResult, S: _Styles):
     story.append(Spacer(1, 2.2 * mm))
 
     # 3. 견적 금액
-    disc = book.discount(q.discount)
-    if res.discount and disc is not None:
-        if is_family(disc):
-            rates = sorted({ln.use.rate for ln in res.facility_lines + res.dorm_lines if ln.use.rate})
-            rate_txt = "항목별 " + ", ".join(fmt_rate(r) for r in rates)
-        else:
-            rate_txt = fmt_rate(disc.rate or 0)
+    # 할인률 문구는 견적에 저장된 줄별 할인율로 표시 (이후 할인 기준이 바뀌어도 발행 당시 그대로)
+    if res.discount and q.discount != NO_DISCOUNT:
+        rates = sorted({ln.use.rate for ln in res.facility_lines + res.dorm_lines if ln.discount})
+        rate_txt = (fmt_rate(rates[0]) if len(rates) == 1 and not is_family(book.discount(q.discount))
+                    else "항목별 " + ", ".join(fmt_rate(r) for r in rates))
         disc_desc = Paragraph(f"{q.discount}<br/><font color='#555555'>할인률 {rate_txt} (세부내역 참조)</font>",
                               S.cell_l)
-    elif disc is not None:
+    elif q.discount and q.discount != NO_DISCOUNT:
         disc_desc = Paragraph(q.discount, S.cell_l)
     else:
         disc_desc = Paragraph("해당없음", S.cell_l)

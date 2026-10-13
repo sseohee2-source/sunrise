@@ -12,7 +12,7 @@ import uuid
 from dataclasses import dataclass, field
 from datetime import date, datetime
 
-from .model import Quote, RateBook, calculate
+from .model import Quote, RateBook, calculate, freeze_prices
 from .rates import app_dir
 
 STORE_DIR_NAME = "견적데이터"
@@ -74,7 +74,9 @@ class QuoteCase:
 
     # ---- 변경
     def save_version(self, q: Quote, book: RateBook, as_new: bool) -> Version:
-        """as_new=True 면 새 차수로 추가, False 면 같은 차수를 덮어쓴다."""
+        """as_new=True 면 새 차수로 추가, False 면 같은 차수를 덮어쓴다.
+        새 견적·새 차수는 지금의 요금 기준으로, 덮어쓰기는 저장 당시 요금을 유지한 채 저장한다."""
+        freeze_prices(q, book, reprice=as_new or not self.version(q.revision))
         if as_new or not self.version(q.revision):
             if as_new:
                 q.revision = self.next_revision()
