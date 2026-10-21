@@ -131,7 +131,7 @@ export function OfficerDialog({
         <DialogHeader>
           <DialogTitle>{editing ? "임원 정보 수정" : "임원 등록"}</DialogTitle>
           <DialogDescription>
-            한 사람이 연임하거나 직책을 바꾸면 &lsquo;기존 인물 선택&rsquo;으로 재임 기록을 새로 추가하세요.
+            한 사람이 연임하거나 직책을 바꾸면 &lsquo;기존&rsquo;을 선택해 재임 기록을 새로 추가하세요.
           </DialogDescription>
         </DialogHeader>
 
@@ -141,11 +141,11 @@ export function OfficerDialog({
             <div className="flex gap-4 text-sm">
               <label className="flex cursor-pointer items-center gap-1.5">
                 <input type="radio" checked={mode === "new"} onChange={() => { setMode("new"); setPersonId(undefined); setPerson(empty); }} />
-                새 인물
+                신임
               </label>
               <label className="flex cursor-pointer items-center gap-1.5">
                 <input type="radio" checked={mode === "existing"} onChange={() => setMode("existing")} />
-                기존 인물 선택 (연임·직책 변경)
+                기존 (연임·직책 변경)
               </label>
             </div>
           )}

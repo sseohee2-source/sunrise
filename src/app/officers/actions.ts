@@ -10,7 +10,7 @@ import { describeViolation, findQuotaViolations } from "@/lib/queries/officers";
 
 export type OfficerInput = {
   appointmentId?: number;
-  /** 기존 인물 선택 시 id, 새 인물이면 undefined */
+  /** 기존 인물이면 id, 신임이면 undefined */
   personId?: number;
   person: { name: string; education: string; career: string; note: string };
   positionId: number;

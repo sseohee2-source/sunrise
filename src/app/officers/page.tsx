@@ -145,7 +145,7 @@ export default async function OfficersPage({ searchParams }: PageProps<"/officer
             <Card key={cat} className="gap-2 pb-0">
               <CardHeader>
                 <CardTitle>
-                  {POSITION_CATEGORY[cat]} 임원{" "}
+                  {POSITION_CATEGORY[cat]}이사{" "}
                   <span className="text-muted-foreground text-sm font-normal">
                     (정원 {entries.reduce((s, e) => s + e.position.quota, 0)}명 / 현원{" "}
                     {entries.reduce((s, e) => s + e.serving.length, 0)}명)
