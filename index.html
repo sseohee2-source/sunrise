@@ -114,11 +114,15 @@ const ROLES = {
   상임: ['이사장', '부이사장', '기획관리이사', '기업금융이사', '글로벌혁신이사', '지역혁신이사', '인력성장이사'],
   비상임: ['선임비상임이사', '비상임이사', '노동이사']
 };
-const TERM_YEARS = 3;
+// 정관 제7조: 이사장 3년, 이사·감사 2년, 연임은 1년 단위, 당연직은 해당 직책 재임기간.
+// 임기 만료 후에도 후임자 임명 시까지 직무 수행(계속근무).
+const RENEW_YEARS = 1;
+const defaultYears = role => role === '이사장' ? 3 : 2;
+const TERM_OPTS = [[3, '3년 (이사장)'], [2, '2년 (이사·감사)'], [1, '1년 (연임)'], ['ex', '당연직 (직책 재임기간)'], ['', '직접 입력']];
 
 function defaultState(){
   return {
-    version: 2,
+    version: 3,
     settings: { quotaStanding: 7, quotaNon: 8, rateFace: 400000, rateWritten: 150000, payTarget: 'non', depts: [] },
     directors: [],
     meetings: []
@@ -132,17 +136,21 @@ function normalize(d){
   const s = defaultState();
   d.settings = Object.assign(s.settings, d.settings || {});
   d.directors = (d.directors || []).map(x => {
-    x = Object.assign({ role: '', termEnd: '', leaveDate: '', note: '' }, x);
+    x = Object.assign({ role: '', termEnd: '', leaveDate: '', note: '', exOfficio: false }, x);
     if (!(d.version >= 2)) {
       // v1: termEnd = 실제 퇴임일, position = 직위 → v2: termEnd = 임기만료일(명목), leaveDate = 실제 퇴임일
       x.leaveDate = x.termEnd || '';
-      x.termEnd = x.termStart ? termEndFrom(x.termStart) : '';
+      x.termEnd = x.termStart ? termEndFrom(x.termStart, 3) : '';
       x.role = ROLES[x.type]?.includes(x.position) ? x.position : (x.type === '비상임' ? '비상임이사' : '');
       delete x.position;
     }
     return x;
   });
-  d.version = 2;
+  // v2 → v3: 임기 3년 일괄 자동계산값을 정관 기준(이사장 3년, 그 외 2년)으로 재계산 (직접 수정한 만료일은 유지)
+  if (!(d.version >= 3)) d.directors.forEach(x => {
+    if (x.termStart && x.termEnd === termEndFrom(x.termStart, 3)) x.termEnd = termEndFrom(x.termStart, x.note === '연임' ? RENEW_YEARS : defaultYears(x.role));
+  });
+  d.version = 3;
   d.meetings = (d.meetings || []).map(m => Object.assign({ attendees: [], agendas: [], remarks: [], note: '', enrolledOverride: null }, m));
   return d;
 }
@@ -180,7 +188,7 @@ const yearMeetings = () => sortMeetings(S.meetings.filter(inYear));
 // ── 임기 ──
 // 임기만료일(termEnd)은 명목상 임기(보통 3년). 실제 근무 종료는 퇴임일(leaveDate)로 관리하며,
 // 임기만료 후 후임 미선임으로 계속 근무하면 퇴임일을 비워 둔다.
-function termEndFrom(start, years = TERM_YEARS){
+function termEndFrom(start, years){
   const [y, m, d] = start.split('-').map(Number);
   if (!y || !m || !d) return '';
   return new Date(Date.UTC(y + years, m - 1, d) - 864e5).toISOString().slice(0, 10);
@@ -199,6 +207,7 @@ const isSeated = (d, date) => (!d.termStart || d.termStart <= date) && (!d.leave
 function statusOn(d, date){
   if (d.termStart && d.termStart > date) return { key: 'pending', label: '임명 전', cls: 't-mute' };
   if (d.leaveDate && d.leaveDate < date) return { key: 'left', label: '퇴임', cls: 't-mute' };
+  if (d.exOfficio) return { key: 'active', label: '당연직', cls: 't-ok', detail: '직책 재임기간' };
   if (d.termEnd && d.termEnd < date) return { key: 'holdover', label: '임기만료·계속근무', cls: 't-warn', detail: `만료 후 ${fmtDur(d.termEnd, date)} 경과 (후임 미선임)` };
   return { key: 'active', label: '임기 중', cls: 't-ok', detail: d.termEnd ? `잔여 ${fmtDur(date, d.termEnd)}` : '' };
 }
@@ -480,6 +489,7 @@ function directorStats(){
   });
 }
 const fmtDate = s => s ? s.replace(/-/g, '.') : '';
+const endLabel = d => d.exOfficio ? '<span class="muted">당연직</span>' : fmtDate(d.termEnd);
 function quickDates(){
   const t = today(), [y, m] = t.split('-').map(Number);
   const endOf = (yy, mm) => new Date(Date.UTC(yy, mm, 0)).toISOString().slice(0, 10); // mm: 1~12
@@ -504,7 +514,7 @@ function viewStatus(){
     if (!d) return `<tr><td class="n muted">-</td><td>${type}이사</td><td><b>${role}</b></td><td colspan="5" class="muted">공석</td></tr>`;
     const s = statusOn(d, date);
     return `<tr class="click" data-edit="${d.id}"><td class="n">${++no}</td><td>${d.type}이사</td><td><b>${esc(roleLabel(d))}</b></td><td><b>${esc(d.name)}</b></td>
-      <td>${fmtDate(d.termStart)}</td><td>${fmtDate(d.termEnd)}</td>
+      <td>${fmtDate(d.termStart)}</td><td>${endLabel(d)}</td>
       <td><span class="tag ${s.cls}">${s.label}</span> <span class="small muted">${s.detail || ''}</span></td><td class="small">${esc(d.note)}</td></tr>`;
   };
   // 상임: 직위별 1석 (공석 표시), 직위 미지정자는 뒤에
@@ -535,7 +545,7 @@ function viewStatus(){
       <thead><tr><th class="n">연번</th><th>구분</th><th>직위</th><th>성명</th><th>임기 시작</th><th>임기 만료</th><th>재임 상태</th><th>비고</th></tr></thead>
       <tbody>${stRows}${nonRows}</tbody>
     </table></div>
-    <p class="small muted">※ 임기만료·계속근무: 임기(${TERM_YEARS}년)가 만료되었으나 후임자 미선임으로 계속 근무 중인 임원. 행을 누르면 정보를 수정할 수 있습니다.</p>
+    <p class="small muted">※ 임기만료·계속근무: 임기(이사장 3년, 이사 2년, 연임 1년 단위)가 만료되었으나 후임자 미선임으로 계속 근무 중인 임원. 행을 누르면 정보를 수정할 수 있습니다.</p>
   </div>`;
 }
 
@@ -550,11 +560,12 @@ function dirForm(){
       <label class="f">구분<select data-df="type">${['상임', '비상임'].map(t => `<option value="${t}" ${f.type === t ? 'selected' : ''}>${t}이사</option>`).join('')}</select></label>
       <label class="f">직위(구분2)<select data-df="role">${ROLES[f.type].map(r => `<option ${f.role === r ? 'selected' : ''}>${r}</option>`).join('')}</select></label>
       <label class="f">임기 시작<input type="date" data-df="termStart" value="${esc(f.termStart)}"></label>
-      <label class="f">임기 만료 <span class="small muted">(자동 ${TERM_YEARS}년)</span><input type="date" data-df="termEnd" value="${esc(f.termEnd)}"></label>
+      <label class="f">임기<select data-df="years">${TERM_OPTS.map(([v, l]) => `<option value="${v}" ${String(f.years) === String(v) ? 'selected' : ''}>${l}</option>`).join('')}</select></label>
+      <label class="f">임기 만료 <span class="small muted">(자동 계산)</span><input type="date" data-df="termEnd" value="${esc(f.termEnd)}" ${f.years === 'ex' ? 'disabled' : ''}></label>
       <label class="f">퇴임일 <span class="small muted">(비우면 재직 중)</span><input type="date" data-df="leaveDate" value="${esc(f.leaveDate)}"></label>
       <label class="f" style="flex:1;min-width:160px">비고<input data-df="note" value="${esc(f.note)}" placeholder="예: 연임, 중도사임"></label>
     </div>
-    <p class="small muted">임기 만료일은 바꾸지 않고 두세요. 임기가 끝난 뒤에도 퇴임일이 비어 있으면 <b>임기만료·계속근무</b>로 표시됩니다. 후임자가 선임되면 퇴임일(마지막 근무일)을 입력하세요.</p>
+    <p class="small muted">정관 제7조: 이사장 3년, 이사·감사 2년, 연임은 1년 단위, 당연직이사는 해당 직책 재임기간. 임기 만료일은 바꾸지 않고 두세요. 임기가 끝난 뒤에도 퇴임일이 비어 있으면 <b>임기만료·계속근무</b>로 표시됩니다. 후임자가 선임되면 퇴임일(마지막 근무일)을 입력하세요.</p>
     <div class="row"><button class="btn p" data-act="dirSave">저장</button><button class="btn" data-act="dirCancel">취소</button></div>
   </div>`;
 }
@@ -575,7 +586,7 @@ function viewHistory(){
   return `
   ${dirForm()}
   ${ui.bulk ? `<div class="card noprint" style="border-color:var(--accent)"><h2>엑셀에서 붙여넣어 일괄 등록</h2>
-    <p class="small muted" style="margin-top:0">엑셀에서 아래 순서의 열을 복사해 붙여넣으세요 (첫 줄 제목행은 자동 제외). 임기 만료가 비어 있으면 ${TERM_YEARS}년으로 계산합니다.<br>
+    <p class="small muted" style="margin-top:0">엑셀에서 아래 순서의 열을 복사해 붙여넣으세요 (첫 줄 제목행은 자동 제외). 임기 만료가 비어 있으면 정관 기준(이사장 3년, 그 외 2년, 비고가 '연임'이면 1년)으로 계산하고, 비고에 '당연직'이 있으면 당연직으로 등록합니다.<br>
     <b>성명 · 구분(상임/비상임) · 직위 · 임기시작 · 임기만료(선택) · 퇴임일(선택) · 비고(선택)</b> &nbsp; 날짜 예: 2023-03-01, 2023.3.1, 20230301</p>
     <textarea id="bulkText" style="min-height:140px;font-family:monospace" placeholder="홍길동&#9;상임&#9;이사장&#9;2020.03.01&#9;&#9;2023.04.15"></textarea>
     <div class="row" style="margin-top:8px"><button class="btn p" data-act="bulkRun">등록</button><button class="btn" data-act="bulkToggle">닫기</button></div></div>` : ''}
@@ -591,7 +602,7 @@ function viewHistory(){
       <thead><tr><th>구분</th><th>직위</th><th>성명</th><th>임기 시작</th><th>임기 만료</th><th>퇴임일</th><th>실제 재임기간</th><th>현재 상태</th><th>비고</th><th class="noprint"></th></tr></thead>
       <tbody>${rows.map(d => { const s = statusOn(d, t); return `<tr>
         <td>${d.type}이사</td><td>${esc(roleLabel(d))}</td><td><b>${esc(d.name)}</b></td>
-        <td>${fmtDate(d.termStart)}</td><td>${fmtDate(d.termEnd)}</td><td>${fmtDate(d.leaveDate) || '<span class="muted">-</span>'}</td>
+        <td>${fmtDate(d.termStart)}</td><td>${endLabel(d)}</td><td>${fmtDate(d.leaveDate) || '<span class="muted">-</span>'}</td>
         <td class="small">${d.termStart && d.termStart <= t ? fmtDur(d.termStart, dayAfter(d.leaveDate && d.leaveDate < t ? d.leaveDate : t)) : '-'}</td>
         <td><span class="tag ${s.cls}">${s.label}</span></td><td class="small">${esc(d.note)}</td>
         <td class="noprint" style="white-space:nowrap"><button class="btn sm" data-edit="${d.id}">수정</button>
@@ -764,7 +775,8 @@ function parseBulk(text){
     const termStart = parseDate(s), termEnd = parseDate(e), leaveDate = parseDate(l);
     if (!termStart) return errors.push(`${n}: 임기 시작일 확인 필요`);
     if (termEnd === null || leaveDate === null) return errors.push(`${n}: 날짜 형식 확인 필요`);
-    recs.push({ id: uid(), name, type, role, termStart, termEnd: termEnd || termEndFrom(termStart), leaveDate: leaveDate || '', note: note || '' });
+    const ex = /당연직/.test(note || '');
+    recs.push({ id: uid(), name, type, role, termStart, termEnd: ex ? '' : termEnd || termEndFrom(termStart, /연임/.test(note || '') ? RENEW_YEARS : defaultYears(role)), leaveDate: leaveDate || '', note: note || '', exOfficio: ex });
   });
   return { recs, errors };
 }
@@ -805,14 +817,14 @@ const actions = {
   agDown(el){ moveAgenda(curMeeting(), el.dataset.id, 1); save(); render(); },
   addDirector(){
     ui.dsub = 'history'; ui.bulk = false;
-    ui.draft = { id: uid(), name: '', type: '상임', role: ROLES.상임[0], termStart: today(), termEnd: termEndFrom(today()), leaveDate: '', note: '' };
+    ui.draft = { id: uid(), name: '', type: '상임', role: ROLES.상임[0], termStart: today(), years: 3, termEnd: termEndFrom(today(), 3), leaveDate: '', note: '' };
     render(); window.scrollTo(0, 0); $('[data-df="name"]').focus();
   },
   renew(el){
     const d = dirById(el.dataset.id);
     const start = d.termEnd ? dayAfter(d.termEnd) : today();
     ui.dsub = 'history'; ui.bulk = false;
-    ui.draft = { id: uid(), name: d.name, type: d.type, role: d.role, termStart: start, termEnd: termEndFrom(start), leaveDate: '', note: '연임', _renew: true };
+    ui.draft = { id: uid(), name: d.name, type: d.type, role: d.role, termStart: start, years: RENEW_YEARS, termEnd: termEndFrom(start, RENEW_YEARS), leaveDate: '', note: '연임', _renew: true };
     render(); window.scrollTo(0, 0);
   },
   dirCancel(){ ui.draft = null; render(); },
@@ -823,7 +835,7 @@ const actions = {
     if (!f.termStart) return alert('임기 시작일을 입력하세요');
     if (f.termEnd && f.termEnd < f.termStart) return alert('임기 만료일이 시작일보다 빠릅니다');
     if (f.leaveDate && f.leaveDate < f.termStart) return alert('퇴임일이 임기 시작일보다 빠릅니다');
-    const rec = { id: f.id, name: f.name, type: f.type, role: f.role, termStart: f.termStart, termEnd: f.termEnd || termEndFrom(f.termStart), leaveDate: f.leaveDate || '', note: (f.note || '').trim() };
+    const rec = { id: f.id, name: f.name, type: f.type, role: f.role, termStart: f.termStart, termEnd: f.years === 'ex' ? '' : f.termEnd || termEndFrom(f.termStart, defaultYears(f.role)), leaveDate: f.leaveDate || '', note: (f.note || '').trim(), exOfficio: f.years === 'ex' };
     const i = S.directors.findIndex(d => d.id === rec.id);
     if (i >= 0) S.directors[i] = rec; else S.directors.push(rec);
     closePredecessors(rec);
@@ -885,7 +897,7 @@ const actions = {
 document.addEventListener('click', e => {
   const t = e.target.closest('[data-tab],[data-act],[data-open],[data-edit]');
   if (!t) return;
-  if (t.dataset.edit) { const d = dirById(t.dataset.edit); ui.tab = 'directors'; ui.dsub = 'history'; ui.bulk = false; ui.draft = Object.assign({}, d); render(); window.scrollTo(0, 0); return; }
+  if (t.dataset.edit) { const d = dirById(t.dataset.edit); ui.tab = 'directors'; ui.dsub = 'history'; ui.bulk = false; ui.draft = Object.assign({}, d, { years: d.exOfficio ? 'ex' : ([3, 2, 1].find(y => d.termStart && termEndFrom(d.termStart, y) === d.termEnd) ?? '') }); render(); window.scrollTo(0, 0); return; }
   if (t.dataset.tab) { e.preventDefault(); ui.tab = t.dataset.tab; ui.meetingId = null; render(); window.scrollTo(0, 0); }
   else if (t.dataset.act) actions[t.dataset.act](t);
   else if (t.dataset.open) { ui.tab = 'meetings'; ui.meetingId = t.dataset.open; render(); window.scrollTo(0, 0); }
@@ -896,7 +908,7 @@ document.addEventListener('input', e => {
   const t = e.target;
   if (t.dataset.rf === 'q') { ui.rf.q = t.value; const pos = t.selectionStart; render(); const n = document.querySelector('[data-rf="q"]'); n.focus(); n.setSelectionRange(pos, pos); return; }
   if (t.dataset.hf === 'q') { ui.hf.q = t.value; const pos = t.selectionStart; render(); const n = document.querySelector('[data-hf="q"]'); n.focus(); n.setSelectionRange(pos, pos); return; }
-  if (t.dataset.df && ui.draft && !['type', 'termStart'].includes(t.dataset.df)) { ui.draft[t.dataset.df] = t.value; return; }
+  if (t.dataset.df && ui.draft && !['type', 'role', 'termStart', 'years'].includes(t.dataset.df)) { ui.draft[t.dataset.df] = t.value; return; }
   if (t.dataset.af === 'q') { ui.af.q = t.value; const pos = t.selectionStart; render(); const n = document.querySelector('[data-af="q"]'); n.focus(); n.setSelectionRange(pos, pos); }
 });
 document.addEventListener('change', e => {
@@ -907,8 +919,14 @@ document.addEventListener('change', e => {
   if (t.dataset.hf && t.dataset.hf !== 'q') { ui.hf[t.dataset.hf] = v; render(); return; }
   if (t.dataset.df && ui.draft) {
     const f = ui.draft, k = t.dataset.df;
-    if (k === 'type') { f.type = v; if (!ROLES[v].includes(f.role)) f.role = ROLES[v][0]; render(); }
-    else if (k === 'termStart') { const auto = f.termStart ? termEndFrom(f.termStart) : ''; f.termStart = v; if (!f.termEnd || f.termEnd === auto) f.termEnd = v ? termEndFrom(v) : ''; render(); }
+    const recalc = () => { if (f.years === 'ex') f.termEnd = ''; else if (f.years !== '' && f.termStart) f.termEnd = termEndFrom(f.termStart, f.years); };
+    if (k === 'type' || k === 'role') {
+      if (k === 'type') { f.type = v; if (!ROLES[v].includes(f.role)) f.role = ROLES[v][0]; } else f.role = v;
+      if (!f._renew && f.years !== 'ex') f.years = defaultYears(f.role);
+      recalc(); render();
+    }
+    else if (k === 'termStart') { f.termStart = v; recalc(); render(); }
+    else if (k === 'years') { f.years = v === '' || v === 'ex' ? v : Number(v); recalc(); render(); }
     else f[k] = v;
     return;
   }
@@ -972,26 +990,26 @@ function sampleData(){
     // 성명, 구분, 직위, 임기시작, 퇴임일(빈칸=재직), 비고
     ['문재호', '상임', '이사장', '2020-03-02', '2023-04-16', ''],
     ['김정훈', '상임', '이사장', '2023-04-17', '', ''],
-    ['이영수', '상임', '부이사장', '2023-01-02', '', ''],
-    ['박민정', '상임', '기획관리이사', '2024-05-01', '', ''],
+    ['이영수', '상임', '부이사장', '2025-01-02', '', ''],
+    ['박민정', '상임', '기획관리이사', '2025-05-01', '', ''],
     ['최성호', '상임', '기업금융이사', '2022-09-01', '2025-11-30', ''],
     ['정다은', '상임', '기업금융이사', '2025-12-01', '', ''],
     ['강태우', '상임', '글로벌혁신이사', '2023-02-01', '', ''],
-    ['윤서연', '상임', '지역혁신이사', '2024-01-02', '', ''],
+    ['윤서연', '상임', '지역혁신이사', '2025-01-02', '', ''],
     ['송기범', '상임', '인력성장이사', '2023-03-15', '2026-07-31', ''],
     ['유상철', '상임', '인력성장이사', '2026-08-01', '', ''],
     ['한지민', '비상임', '선임비상임이사', '2023-03-01', '', ''],
     ['오세훈', '비상임', '비상임이사', '2023-03-01', '', ''],
-    ['서지우', '비상임', '비상임이사', '2024-03-01', '', ''],
-    ['임채원', '비상임', '비상임이사', '2024-03-01', '', ''],
+    ['서지우', '비상임', '비상임이사', '2025-03-01', '', ''],
+    ['임채원', '비상임', '비상임이사', '2024-09-01', '', ''],
     ['조현우', '비상임', '비상임이사', '2025-06-01', '', ''],
     ['신예린', '비상임', '비상임이사', '2025-06-01', '', ''],
-    ['배준호', '비상임', '비상임이사', '2020-07-01', '2023-06-30', ''],
-    ['배준호', '비상임', '비상임이사', '2023-07-01', '2026-06-30', '연임'],
+    ['배준호', '비상임', '비상임이사', '2022-07-01', '2024-06-30', ''],
+    ['배준호', '비상임', '비상임이사', '2024-07-01', '2026-06-30', '연임'],
     ['홍미경', '비상임', '비상임이사', '2026-07-01', '', ''],
     ['장동민', '비상임', '노동이사', '2022-08-01', '', '']
   ];
-  people.forEach(([name, type, role, termStart, leaveDate, note]) => s.directors.push({ id: uid(), name, type, role, termStart, termEnd: termEndFrom(termStart), leaveDate, note }));
+  people.forEach(([name, type, role, termStart, leaveDate, note]) => s.directors.push({ id: uid(), name, type, role, termStart, termEnd: termEndFrom(termStart, note === '연임' ? RENEW_YEARS : defaultYears(role)), leaveDate, note }));
   const plan = [
     ['2026-01-28', '대면', [['2026년도 사업계획 및 예산(안)', '기획조정실', '원안의결'], ['직제규정 일부개정규정(안)', '인사총무부', '수정의결']], [['2025년도 4분기 경영실적', '경영지원부']]],
     ['2026-02-25', '서면', [['2025회계연도 결산(안)', '재무회계부', '원안의결']], []],
