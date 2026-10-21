@@ -26,3 +26,17 @@ export function ComingSoon({ title, stage, items }: { title: string; stage: numb
     </>
   );
 }
+
+/** 화면 일부(탭)가 아직 구현 전일 때 */
+export function ComingSoonInline({ stage, text }: { stage: number; text: string }) {
+  return (
+    <Card>
+      <CardContent className="flex items-center gap-3">
+        <Construction className="text-muted-foreground size-5" />
+        <p>
+          {text} 기능은 <b>{stage}단계</b>에서 구현합니다.
+        </p>
+      </CardContent>
+    </Card>
+  );
+}
