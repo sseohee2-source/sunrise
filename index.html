@@ -108,11 +108,17 @@ const KEY = 'board-mgmt-v1';
 const KINDS = ['대면', '서면'];
 const CATS = ['심의', '보고'];
 const RESULTS = { 심의: ['원안의결', '수정의결', '부결', '보류', '철회'], 보고: ['보고완료'] };
-const TABS = [['dash','대시보드'],['meetings','이사회 회차'],['agendas','안건 현황'],['directors','이사 명단·출석률'],['pay','수당 정산'],['settings','설정·백업']];
+const TABS = [['dash','대시보드'],['meetings','이사회 회차'],['agendas','안건 현황'],['remarks','주요 발언'],['directors','임원 관리'],['pay','수당 정산'],['settings','설정·백업']];
+// 직위 (표시 순서 = 배열 순서)
+const ROLES = {
+  상임: ['이사장', '부이사장', '기획관리이사', '기업금융이사', '글로벌혁신이사', '지역혁신이사', '인력성장이사'],
+  비상임: ['선임비상임이사', '비상임이사', '노동이사']
+};
+const TERM_YEARS = 3;
 
 function defaultState(){
   return {
-    version: 1,
+    version: 2,
     settings: { quotaStanding: 7, quotaNon: 8, rateFace: 400000, rateWritten: 150000, payTarget: 'non', depts: [] },
     directors: [],
     meetings: []
@@ -125,15 +131,29 @@ function load(){
 function normalize(d){
   const s = defaultState();
   d.settings = Object.assign(s.settings, d.settings || {});
-  d.directors = d.directors || [];
-  d.meetings = (d.meetings || []).map(m => Object.assign({ attendees: [], agendas: [], note: '', enrolledOverride: null }, m));
+  d.directors = (d.directors || []).map(x => {
+    x = Object.assign({ role: '', termEnd: '', leaveDate: '', note: '' }, x);
+    if (!(d.version >= 2)) {
+      // v1: termEnd = 실제 퇴임일, position = 직위 → v2: termEnd = 임기만료일(명목), leaveDate = 실제 퇴임일
+      x.leaveDate = x.termEnd || '';
+      x.termEnd = x.termStart ? termEndFrom(x.termStart) : '';
+      x.role = ROLES[x.type]?.includes(x.position) ? x.position : (x.type === '비상임' ? '비상임이사' : '');
+      delete x.position;
+    }
+    return x;
+  });
+  d.version = 2;
+  d.meetings = (d.meetings || []).map(m => Object.assign({ attendees: [], agendas: [], remarks: [], note: '', enrolledOverride: null }, m));
   return d;
 }
 let S = load();
 function save(){
   try { localStorage.setItem(KEY, JSON.stringify(S)); } catch(e) { toast('저장 실패: 브라우저 저장소를 사용할 수 없습니다'); }
 }
-const ui = { tab: 'dash', year: String(new Date().getFullYear()), meetingId: null, af: { cat: '', dept: '', result: '', q: '' } };
+const ui = {
+  tab: 'dash', year: String(new Date().getFullYear()), meetingId: null, af: { cat: '', dept: '', result: '', q: '' },
+  dsub: 'status', rf: { name: '', q: '' }, asOf: new Date().toISOString().slice(0, 10), draft: null, hf: { state: '', type: '', q: '' }, bulk: false
+};
 
 // ───────────────────────── 유틸 ─────────────────────────
 const $ = s => document.querySelector(s);
@@ -157,9 +177,37 @@ const sortMeetings = arr => arr.slice().sort((a, b) => (a.date || '').localeComp
 const inYear = m => ui.year === 'all' || String(m.year) === ui.year;
 const yearMeetings = () => sortMeetings(S.meetings.filter(inYear));
 
-// 회의일 기준 재임 중인 이사
+// ── 임기 ──
+// 임기만료일(termEnd)은 명목상 임기(보통 3년). 실제 근무 종료는 퇴임일(leaveDate)로 관리하며,
+// 임기만료 후 후임 미선임으로 계속 근무하면 퇴임일을 비워 둔다.
+function termEndFrom(start, years = TERM_YEARS){
+  const [y, m, d] = start.split('-').map(Number);
+  if (!y || !m || !d) return '';
+  return new Date(Date.UTC(y + years, m - 1, d) - 864e5).toISOString().slice(0, 10);
+}
+function dayAfter(date, n = 1){ return new Date(Date.parse(date) + n * 864e5).toISOString().slice(0, 10); }
+function monthsBetween(a, b){
+  const [y1, m1, d1] = a.split('-').map(Number), [y2, m2, d2] = b.split('-').map(Number);
+  return (y2 - y1) * 12 + (m2 - m1) - (d2 < d1 ? 1 : 0);
+}
+function fmtDur(from, to){
+  const mo = Math.max(0, monthsBetween(from, to));
+  if (mo < 1) return `${Math.max(0, Math.round((Date.parse(to) - Date.parse(from)) / 864e5))}일`;
+  return (mo >= 12 ? `${Math.floor(mo / 12)}년 ` : '') + (mo % 12 ? `${mo % 12}개월` : '').trim();
+}
+const isSeated = (d, date) => (!d.termStart || d.termStart <= date) && (!d.leaveDate || d.leaveDate >= date);
+function statusOn(d, date){
+  if (d.termStart && d.termStart > date) return { key: 'pending', label: '임명 전', cls: 't-mute' };
+  if (d.leaveDate && d.leaveDate < date) return { key: 'left', label: '퇴임', cls: 't-mute' };
+  if (d.termEnd && d.termEnd < date) return { key: 'holdover', label: '임기만료·계속근무', cls: 't-warn', detail: `만료 후 ${fmtDur(d.termEnd, date)} 경과 (후임 미선임)` };
+  return { key: 'active', label: '임기 중', cls: 't-ok', detail: d.termEnd ? `잔여 ${fmtDur(date, d.termEnd)}` : '' };
+}
+const roleIdx = d => { const i = (ROLES[d.type] || []).indexOf(d.role); return i < 0 ? 99 : i; };
+const byRole = (a, b) => (a.type === '상임' ? 0 : 1) - (b.type === '상임' ? 0 : 1) || roleIdx(a) - roleIdx(b) || (a.termStart || '').localeCompare(b.termStart || '') || a.name.localeCompare(b.name, 'ko');
+const roleLabel = d => d.role || (d.type === '상임' ? '상임이사' : '비상임이사');
+// 회의일 기준 재임 중인 이사 (임기만료 후 계속근무 포함)
 function seatedOn(date){
-  return S.directors.filter(d => (!d.termStart || d.termStart <= date) && (!d.termEnd || d.termEnd >= date));
+  return S.directors.filter(d => isSeated(d, date));
 }
 function stats(m){
   const seated = seatedOn(m.date);
@@ -187,7 +235,7 @@ function render(){
   if (ui.year !== 'all' && !years.includes(ui.year)) years.unshift(ui.year);
   $('#yearSel').innerHTML = `<option value="all">전체</option>` + years.map(y => `<option ${y === ui.year ? 'selected' : ''}>${y}</option>`).join('');
   if (ui.year === 'all') $('#yearSel').value = 'all';
-  const views = { dash: viewDash, meetings: viewMeetings, agendas: viewAgendas, directors: viewDirectors, pay: viewPay, settings: viewSettings };
+  const views = { remarks: viewRemarks, dash: viewDash, meetings: viewMeetings, agendas: viewAgendas, directors: viewDirectors, pay: viewPay, settings: viewSettings };
   $('#app').innerHTML = views[ui.tab]();
 }
 
@@ -262,8 +310,7 @@ function viewMeetings(){
   const seatedIds = new Set(s.seated.map(d => d.id));
   // 재임 기간 외 이사가 참석자로 체크된 경우도 표시
   const shown = s.seated.concat(m.attendees.map(dirById).filter(d => d && !seatedIds.has(d.id)));
-  const order = d => (d.type === '상임' ? 0 : 1);
-  shown.sort((a, b) => order(a) - order(b) || a.name.localeCompare(b.name, 'ko'));
+  shown.sort(byRole);
   const agendaRows = cat => {
     const list = m.agendas.filter(a => a.category === cat);
     if (!list.length) return `<tr><td colspan="6" class="muted small">${cat}안건 없음</td></tr>`;
@@ -307,7 +354,7 @@ function viewMeetings(){
       <div class="row noprint"><button class="btn sm" data-act="attAll">전원 참석</button><button class="btn sm" data-act="attNone">전원 해제</button></div></div>
     ${shown.length ? `<div class="att">${shown.map(d => { const on = m.attendees.includes(d.id); return `
       <label class="${on ? 'on' : ''}"><input type="checkbox" data-att="${d.id}" ${on ? 'checked' : ''}>
-        <span>${esc(d.name)} <span class="small muted">${d.type}${seatedIds.has(d.id) ? '' : ' · 임기외'}</span></span></label>`; }).join('')}</div>`
+        <span>${esc(d.name)} <span class="small muted">${esc(roleLabel(d))}${seatedIds.has(d.id) ? '' : ' · 재임기간 외'}${statusOn(d, m.date).key === 'holdover' ? ' · 계속근무' : ''}</span></span></label>`; }).join('')}</div>`
       : `<div class="empty">이 날짜에 재임 중인 이사가 없습니다. <a href="#" data-tab="directors">이사 명단</a>을 먼저 등록하세요.</div>`}
   </div>
   <div class="card">
@@ -318,8 +365,21 @@ function viewMeetings(){
       <thead><tr><th>번호</th><th>안건명</th><th>담당부서</th><th>결과</th><th>비고</th><th class="noprint"></th></tr></thead>
       <tbody>${agendaRows('심의')}${agendaRows('보고')}</tbody>
     </table></div>
+  </div>
+  <div class="card">
+    <div class="row between"><h2>주요 발언 <span class="small muted">${m.remarks.length}건</span></h2>
+      <button class="btn noprint" data-act="rmAdd">+ 발언 추가</button></div>
+    ${m.remarks.length ? `<div class="tbl"><table>
+      <thead><tr><th>발언 임원</th><th>관련 안건</th><th>발언 내용</th><th>답변 내용(조치결과)</th><th class="noprint"></th></tr></thead>
+      <tbody>${m.remarks.map(r => `<tr style="vertical-align:top">
+        <td><select data-rm="${r.id}" data-k="directorId"><option value="">선택</option>${shown.map(d => `<option value="${d.id}" ${r.directorId === d.id ? 'selected' : ''}>${esc(d.name)} (${esc(roleLabel(d))})</option>`).join('')}</select></td>
+        <td><select data-rm="${r.id}" data-k="agendaId" style="max-width:180px"><option value="">일반/기타</option>${m.agendas.map(a => `<option value="${a.id}" ${r.agendaId === a.id ? 'selected' : ''}>${agendaLabel(a)} ${esc(a.title)}</option>`).join('')}</select></td>
+        <td style="min-width:220px"><textarea data-rm="${r.id}" data-k="content" placeholder="발언 내용">${esc(r.content)}</textarea></td>
+        <td style="min-width:220px"><textarea data-rm="${r.id}" data-k="answer" placeholder="답변 내용 / 조치결과">${esc(r.answer)}</textarea></td>
+        <td class="noprint"><button class="btn sm d" data-act="rmDel" data-id="${r.id}">삭제</button></td></tr>`).join('')}
+      </tbody></table></div>` : '<div class="empty">등록된 발언이 없습니다</div>'}
     <h3>회의 메모</h3>
-    <textarea data-m="note" placeholder="특이사항, 주요 발언 등">${esc(m.note)}</textarea>
+    <textarea data-m="note" placeholder="특이사항 등">${esc(m.note)}</textarea>
   </div>`;
 }
 
@@ -364,6 +424,46 @@ function viewAgendas(){
   </table></div></div>` : ''}`;
 }
 
+function remarkRows(){
+  const f = ui.rf, q = f.q.trim().toLowerCase(), out = [];
+  yearMeetings().forEach(m => m.remarks.forEach(r => {
+    const d = dirById(r.directorId), a = m.agendas.find(x => x.id === r.agendaId);
+    if (f.name && (!d || d.name !== f.name)) return;
+    if (q && !`${r.content} ${r.answer} ${a ? a.title : ''} ${d ? d.name : ''}`.toLowerCase().includes(q)) return;
+    out.push({ m, r, d, a });
+  }));
+  return out;
+}
+function viewRemarks(){
+  const f = ui.rf, rows = remarkRows();
+  // 임원별 발언 건수 (선택 연도 기준, 동명 기록(연임)은 합산)
+  const cnt = {};
+  yearMeetings().forEach(m => m.remarks.forEach(r => { const d = dirById(r.directorId); if (d) cnt[d.name] = (cnt[d.name] || 0) + 1; }));
+  const names = [...new Map(S.directors.slice().sort(byRole).map(d => [d.name, d])).values()];
+  const pre = t => esc(t).replace(/\n/g, '<br>') || '<span class="muted">-</span>';
+  const sel = f.name ? names.find(d => d.name === f.name) : null;
+  return `
+  <div class="card noprint">
+    <div class="row">
+      <label class="f">임원<select data-rf="name"><option value="">전체 임원</option>${names.map(d => `<option value="${esc(d.name)}" ${f.name === d.name ? 'selected' : ''}>${esc(d.name)} (${esc(roleLabel(d))})</option>`).join('')}</select></label>
+      <label class="f" style="flex:1;min-width:180px">내용 검색<input data-rf="q" value="${esc(f.q)}" placeholder="발언·답변·안건명 검색"></label>
+      <div class="row" style="align-self:flex-end"><button class="btn" data-act="csvRemarks">엑셀(CSV)</button><button class="btn" data-act="print">인쇄 / PDF</button></div>
+    </div>
+    ${Object.keys(cnt).length ? `<div class="row small" style="margin-top:12px;gap:6px">${names.filter(d => cnt[d.name]).map(d => `<button class="btn sm ${f.name === d.name ? 'p' : ''}" data-act="rfName" data-v="${esc(d.name)}">${esc(d.name)} ${cnt[d.name]}</button>`).join('')}</div>` : ''}
+  </div>
+  <div class="card">
+    <h2>${sel ? `${esc(sel.name)} ${esc(roleLabel(sel))} 주요 발언` : '임원 주요 발언'} <span class="small muted">(${ui.year === 'all' ? '전체 기간' : ui.year + '년'} · ${rows.length}건)</span></h2>
+    ${rows.length ? `<div class="tbl"><table>
+      <thead><tr><th>일자</th><th>회차</th>${sel ? '' : '<th>발언 임원</th>'}<th>관련 안건</th><th>발언 내용</th><th>답변 내용(조치결과)</th></tr></thead>
+      <tbody>${rows.map(({ m, r, d, a }) => `<tr class="click" data-open="${m.id}" style="vertical-align:top">
+        <td style="white-space:nowrap">${fmtDate(m.date)}</td><td style="white-space:nowrap">${m.year}년 제${m.seq}차 ${kindTag(m.kind)}</td>
+        ${sel ? '' : `<td style="white-space:nowrap"><b>${d ? esc(d.name) : '<span class="muted">미지정</span>'}</b>${d ? `<div class="small muted">${esc(roleLabel(d))}</div>` : ''}</td>`}
+        <td class="small" style="min-width:120px">${a ? `<b>${agendaLabel(a)}</b><br>${esc(a.title)}` : '<span class="muted">일반/기타</span>'}</td>
+        <td style="min-width:200px">${pre(r.content)}</td><td style="min-width:200px">${pre(r.answer)}</td></tr>`).join('')}
+      </tbody></table></div>` : '<div class="empty">조건에 맞는 발언이 없습니다. 이사회 회차 화면의 “주요 발언”에서 등록하세요.</div>'}
+  </div>`;
+}
+
 function directorStats(){
   const ms = yearMeetings();
   const sts = ms.map(m => [m, stats(m)]);
@@ -379,32 +479,142 @@ function directorStats(){
     return { d, eligible, attended, rate: pct(attended, eligible), pay };
   });
 }
+const fmtDate = s => s ? s.replace(/-/g, '.') : '';
+function quickDates(){
+  const t = today(), [y, m] = t.split('-').map(Number);
+  const endOf = (yy, mm) => new Date(Date.UTC(yy, mm, 0)).toISOString().slice(0, 10); // mm: 1~12
+  const q = Math.floor((m - 1) / 3) * 3;
+  return [['오늘', t], ['전월말', m > 1 ? endOf(y, m - 1) : endOf(y - 1, 12)], ['전분기말', q ? endOf(y, q) : endOf(y - 1, 12)], ['6월말', endOf(y, 6)], ['전년말', endOf(y - 1, 12)]];
+}
 function viewDirectors(){
-  const rows = directorStats();
-  const now = today();
-  const order = d => (d.type === '상임' ? 0 : 1);
-  rows.sort((a, b) => order(a.d) - order(b.d) || a.d.name.localeCompare(b.d.name, 'ko'));
+  const subs = [['status', '기준일 임원 현황'], ['history', '역대 임원 명단'], ['attend', '개인별 출석률']];
+  const body = { status: viewStatus, history: viewHistory, attend: viewAttend }[ui.dsub]();
+  return `<div class="row noprint" style="margin-bottom:12px;gap:4px">${subs.map(([k, l]) => `<button class="btn ${ui.dsub === k ? 'p' : ''}" data-act="dsub" data-k="${k}">${l}</button>`).join('')}</div>${body}`;
+}
+
+function viewStatus(){
+  const date = ui.asOf || today();
+  const seated = seatedOn(date).sort(byRole);
+  const st = seated.filter(d => d.type === '상임'), non = seated.filter(d => d.type === '비상임');
+  const qS = +S.settings.quotaStanding, qN = +S.settings.quotaNon;
+  const hold = seated.filter(d => statusOn(d, date).key === 'holdover');
+  const soon = seated.filter(d => d.termEnd && d.termEnd >= date && d.termEnd <= dayAfter(date, 90));
+  let no = 0;
+  const row = (d, type, role) => {
+    if (!d) return `<tr><td class="n muted">-</td><td>${type}이사</td><td><b>${role}</b></td><td colspan="5" class="muted">공석</td></tr>`;
+    const s = statusOn(d, date);
+    return `<tr class="click" data-edit="${d.id}"><td class="n">${++no}</td><td>${d.type}이사</td><td><b>${esc(roleLabel(d))}</b></td><td><b>${esc(d.name)}</b></td>
+      <td>${fmtDate(d.termStart)}</td><td>${fmtDate(d.termEnd)}</td>
+      <td><span class="tag ${s.cls}">${s.label}</span> <span class="small muted">${s.detail || ''}</span></td><td class="small">${esc(d.note)}</td></tr>`;
+  };
+  // 상임: 직위별 1석 (공석 표시), 직위 미지정자는 뒤에
+  const stRows = ROLES.상임.map(r => { const p = st.filter(d => d.role === r); return p.length ? p.map(d => row(d, '상임')).join('') : row(null, '상임', r); }).join('')
+    + st.filter(d => !ROLES.상임.includes(d.role)).map(d => row(d, '상임')).join('');
+  const nonRows = non.map(d => row(d, '비상임')).join('') + (qN > non.length ? `<tr><td class="n muted">-</td><td>비상임이사</td><td colspan="6" class="muted">결원 ${qN - non.length}명</td></tr>` : '');
+  const dup = ROLES.상임.filter(r => st.filter(d => d.role === r).length > 1);
+  return `
+  <div class="card noprint">
+    <div class="row">
+      <label class="f">기준일<input type="date" data-asof value="${esc(date)}"></label>
+      <div class="row" style="gap:4px;align-self:flex-end">${quickDates().map(([l, v]) => `<button class="btn sm" data-act="asof" data-v="${v}">${l}</button>`).join('')}</div>
+      <div style="flex:1"></div>
+      <div class="row" style="align-self:flex-end"><button class="btn" data-act="csvStatus">엑셀(CSV)</button><button class="btn p" data-act="print">인쇄 / PDF</button></div>
+    </div>
+  </div>
+  <div class="card">
+    <h2 style="font-size:18px">${fmtDate(date)} 기준 임원 현황</h2>
+    <div class="grid kpis" style="margin-bottom:12px">
+      <div class="kpi"><div class="l">정원 / 현원</div><div class="v">${qS + qN} / ${seated.length}명</div><div class="s">${qS + qN > seated.length ? `결원 ${qS + qN - seated.length}명` : '결원 없음'}</div></div>
+      <div class="kpi"><div class="l">상임이사</div><div class="v">${st.length} / ${qS}명</div><div class="s">${ROLES.상임.filter(r => !st.some(d => d.role === r)).map(r => r + ' 공석').join(', ') || '공석 없음'}</div></div>
+      <div class="kpi"><div class="l">비상임이사</div><div class="v">${non.length} / ${qN}명</div><div class="s">노동이사 ${non.filter(d => d.role === '노동이사').length}명 포함</div></div>
+      <div class="kpi"><div class="l">임기만료·계속근무</div><div class="v" style="${hold.length ? 'color:var(--warn)' : ''}">${hold.length}명</div><div class="s">${hold.map(d => esc(d.name)).join(', ') || '후임 미선임 없음'}</div></div>
+      <div class="kpi"><div class="l">90일 내 임기만료</div><div class="v">${soon.length}명</div><div class="s">${soon.map(d => `${esc(d.name)}(${d.termEnd.slice(5).replace('-', '.')})`).join(', ') || '-'}</div></div>
+    </div>
+    ${dup.length ? `<p class="small" style="color:var(--bad)">⚠ ${dup.join(', ')} 직위에 재임자가 2명 이상입니다. 전임자의 퇴임일을 입력해 주세요.</p>` : ''}
+    <div class="tbl"><table>
+      <thead><tr><th class="n">연번</th><th>구분</th><th>직위</th><th>성명</th><th>임기 시작</th><th>임기 만료</th><th>재임 상태</th><th>비고</th></tr></thead>
+      <tbody>${stRows}${nonRows}</tbody>
+    </table></div>
+    <p class="small muted">※ 임기만료·계속근무: 임기(${TERM_YEARS}년)가 만료되었으나 후임자 미선임으로 계속 근무 중인 임원. 행을 누르면 정보를 수정할 수 있습니다.</p>
+  </div>`;
+}
+
+function dirForm(){
+  const f = ui.draft; if (!f) return '';
+  const isNew = !S.directors.some(d => d.id === f.id);
+  return `
+  <div class="card noprint" style="border-color:var(--accent)">
+    <h2>${isNew ? (f._renew ? '연임 등록' : '임원 등록') : '임원 정보 수정'}</h2>
+    <div class="row" style="align-items:flex-start">
+      <label class="f">성명<input data-df="name" value="${esc(f.name)}" style="width:120px"></label>
+      <label class="f">구분<select data-df="type">${['상임', '비상임'].map(t => `<option value="${t}" ${f.type === t ? 'selected' : ''}>${t}이사</option>`).join('')}</select></label>
+      <label class="f">직위(구분2)<select data-df="role">${ROLES[f.type].map(r => `<option ${f.role === r ? 'selected' : ''}>${r}</option>`).join('')}</select></label>
+      <label class="f">임기 시작<input type="date" data-df="termStart" value="${esc(f.termStart)}"></label>
+      <label class="f">임기 만료 <span class="small muted">(자동 ${TERM_YEARS}년)</span><input type="date" data-df="termEnd" value="${esc(f.termEnd)}"></label>
+      <label class="f">퇴임일 <span class="small muted">(비우면 재직 중)</span><input type="date" data-df="leaveDate" value="${esc(f.leaveDate)}"></label>
+      <label class="f" style="flex:1;min-width:160px">비고<input data-df="note" value="${esc(f.note)}" placeholder="예: 연임, 중도사임"></label>
+    </div>
+    <p class="small muted">임기 만료일은 바꾸지 않고 두세요. 임기가 끝난 뒤에도 퇴임일이 비어 있으면 <b>임기만료·계속근무</b>로 표시됩니다. 후임자가 선임되면 퇴임일(마지막 근무일)을 입력하세요.</p>
+    <div class="row"><button class="btn p" data-act="dirSave">저장</button><button class="btn" data-act="dirCancel">취소</button></div>
+  </div>`;
+}
+
+function historyRows(){
+  const f = ui.hf, t = today(), q = f.q.trim().toLowerCase();
+  return S.directors.filter(d => {
+    const k = statusOn(d, t).key;
+    if (f.state === 'cur' && !(k === 'active' || k === 'holdover')) return false;
+    if (f.state === 'left' && k !== 'left') return false;
+    if (f.type && d.type !== f.type) return false;
+    if (q && !`${d.name} ${d.role} ${d.note}`.toLowerCase().includes(q)) return false;
+    return true;
+  }).sort(byRole);
+}
+function viewHistory(){
+  const f = ui.hf, rows = historyRows(), t = today();
+  return `
+  ${dirForm()}
+  ${ui.bulk ? `<div class="card noprint" style="border-color:var(--accent)"><h2>엑셀에서 붙여넣어 일괄 등록</h2>
+    <p class="small muted" style="margin-top:0">엑셀에서 아래 순서의 열을 복사해 붙여넣으세요 (첫 줄 제목행은 자동 제외). 임기 만료가 비어 있으면 ${TERM_YEARS}년으로 계산합니다.<br>
+    <b>성명 · 구분(상임/비상임) · 직위 · 임기시작 · 임기만료(선택) · 퇴임일(선택) · 비고(선택)</b> &nbsp; 날짜 예: 2023-03-01, 2023.3.1, 20230301</p>
+    <textarea id="bulkText" style="min-height:140px;font-family:monospace" placeholder="홍길동&#9;상임&#9;이사장&#9;2020.03.01&#9;&#9;2023.04.15"></textarea>
+    <div class="row" style="margin-top:8px"><button class="btn p" data-act="bulkRun">등록</button><button class="btn" data-act="bulkToggle">닫기</button></div></div>` : ''}
+  <div class="card">
+    <div class="row between"><h2>역대 임원 명단 · ${rows.length}명</h2>
+      <div class="row noprint"><button class="btn" data-act="csvHistory">엑셀(CSV)</button><button class="btn" data-act="bulkToggle">일괄 등록</button><button class="btn p" data-act="addDirector">+ 임원 등록</button></div></div>
+    <div class="row noprint" style="margin-bottom:12px">
+      <select data-hf="state"><option value="">전체</option><option value="cur" ${f.state === 'cur' ? 'selected' : ''}>현재 재직</option><option value="left" ${f.state === 'left' ? 'selected' : ''}>퇴임</option></select>
+      <select data-hf="type"><option value="">구분 전체</option>${['상임', '비상임'].map(x => `<option value="${x}" ${f.type === x ? 'selected' : ''}>${x}이사</option>`).join('')}</select>
+      <input data-hf="q" value="${esc(f.q)}" placeholder="성명·직위 검색" style="flex:1;min-width:140px">
+    </div>
+    ${rows.length ? `<div class="tbl"><table>
+      <thead><tr><th>구분</th><th>직위</th><th>성명</th><th>임기 시작</th><th>임기 만료</th><th>퇴임일</th><th>실제 재임기간</th><th>현재 상태</th><th>비고</th><th class="noprint"></th></tr></thead>
+      <tbody>${rows.map(d => { const s = statusOn(d, t); return `<tr>
+        <td>${d.type}이사</td><td>${esc(roleLabel(d))}</td><td><b>${esc(d.name)}</b></td>
+        <td>${fmtDate(d.termStart)}</td><td>${fmtDate(d.termEnd)}</td><td>${fmtDate(d.leaveDate) || '<span class="muted">-</span>'}</td>
+        <td class="small">${d.termStart && d.termStart <= t ? fmtDur(d.termStart, dayAfter(d.leaveDate && d.leaveDate < t ? d.leaveDate : t)) : '-'}</td>
+        <td><span class="tag ${s.cls}">${s.label}</span></td><td class="small">${esc(d.note)}</td>
+        <td class="noprint" style="white-space:nowrap"><button class="btn sm" data-edit="${d.id}">수정</button>
+          <button class="btn sm" data-act="renew" data-id="${d.id}" title="같은 직위로 다음 임기 등록">연임</button>
+          <button class="btn sm d" data-act="delDirector" data-id="${d.id}">삭제</button></td></tr>`; }).join('')}
+      </tbody></table></div>` : '<div class="empty">등록된 임원이 없습니다. “+ 임원 등록” 또는 “일괄 등록”으로 시작하세요.</div>'}
+  </div>`;
+}
+
+function viewAttend(){
+  const rows = directorStats().filter(r => r.eligible || r.attended).sort((a, b) => byRole(a.d, b.d));
   return `
   <div class="card">
-    <div class="row between"><h2>이사 명단 및 개인별 출석률 (${ui.year === 'all' ? '전체' : ui.year + '년'})</h2>
-      <button class="btn p noprint" data-act="addDirector">+ 이사 추가</button></div>
-    <p class="small muted" style="margin-top:0">임기 시작·종료일을 입력하면 회의일 기준으로 재적인원이 자동 계산됩니다. 퇴임한 이사는 삭제하지 말고 임기종료일을 입력하세요(과거 출석 기록 유지).</p>
+    <h2>개인별 출석률 (${ui.year === 'all' ? '전체' : ui.year + '년'})</h2>
+    <p class="small muted" style="margin-top:0">대상 회차 = 해당 이사회 개최일에 재임(계속근무 포함) 중이던 회차</p>
     ${rows.length ? `<div class="tbl"><table>
-      <thead><tr><th>성명</th><th>구분</th><th>직위</th><th>임기 시작</th><th>임기 종료</th><th>상태</th><th class="n">대상 회차</th><th class="n">참석</th><th>출석률</th><th class="n">수당</th><th class="noprint"></th></tr></thead>
-      <tbody>${rows.map(({ d, eligible, attended, rate, pay }) => {
-        const active = (!d.termStart || d.termStart <= now) && (!d.termEnd || d.termEnd >= now);
-        return `<tr>
-        <td><input data-dir="${d.id}" data-k="name" value="${esc(d.name)}" style="width:100px"></td>
-        <td><select data-dir="${d.id}" data-k="type"><option ${d.type === '상임' ? 'selected' : ''}>상임</option><option ${d.type === '비상임' ? 'selected' : ''}>비상임</option></select></td>
-        <td><input data-dir="${d.id}" data-k="position" value="${esc(d.position)}" placeholder="예: 이사장" style="width:110px"></td>
-        <td><input type="date" data-dir="${d.id}" data-k="termStart" value="${esc(d.termStart)}"></td>
-        <td><input type="date" data-dir="${d.id}" data-k="termEnd" value="${esc(d.termEnd)}"></td>
-        <td>${active ? '<span class="tag t-ok">재임</span>' : '<span class="tag t-mute">퇴임/예정</span>'}</td>
+      <thead><tr><th>구분</th><th>직위</th><th>성명</th><th class="n">대상 회차</th><th class="n">참석</th><th>출석률</th><th class="n">수당</th></tr></thead>
+      <tbody>${rows.map(({ d, eligible, attended, rate, pay }) => `<tr>
+        <td>${d.type}이사</td><td>${esc(roleLabel(d))}</td><td><b>${esc(d.name)}</b></td>
         <td class="n">${eligible}</td><td class="n">${attended}</td>
         <td><div class="row" style="gap:6px;flex-wrap:nowrap"><div class="bar" style="flex:1"><i style="width:${rate}%"></i></div><span class="small">${rate}%</span></div></td>
-        <td class="n">${won(pay)}</td>
-        <td class="noprint"><button class="btn sm d" data-act="delDirector" data-id="${d.id}">삭제</button></td></tr>`; }).join('')}
-      </tbody></table></div>` : '<div class="empty">등록된 이사가 없습니다. “+ 이사 추가”를 누르거나 설정 탭에서 예시 데이터를 불러오세요.</div>'}
+        <td class="n">${won(pay)}</td></tr>`).join('')}
+      </tbody></table></div>` : '<div class="empty">해당 기간에 대상 이사회가 없습니다</div>'}
   </div>`;
 }
 
@@ -490,7 +700,7 @@ function newMeeting(){
   const y = ui.year === 'all' ? new Date().getFullYear() : Number(ui.year);
   const seq = Math.max(0, ...S.meetings.filter(m => m.year === y).map(m => m.seq)) + 1;
   const date = String(y) === today().slice(0, 4) ? today() : `${y}-01-01`;
-  const m = { id: uid(), year: y, seq, date, kind: '대면', rate: S.settings.rateFace, enrolledOverride: null, attendees: [], agendas: [], note: '' };
+  const m = { id: uid(), year: y, seq, date, kind: '대면', rate: S.settings.rateFace, enrolledOverride: null, attendees: [], agendas: [], remarks: [], note: '' };
   S.meetings.push(m); save();
   ui.tab = 'meetings'; ui.meetingId = m.id; render();
 }
@@ -516,6 +726,49 @@ function download(name, text, type){
 }
 const yTag = () => ui.year === 'all' ? '전체' : ui.year;
 
+// 새 임기 등록 시, 같은 상임 직위(또는 같은 사람)의 재직 중인 전임 기록에 퇴임일(새 임기 시작 전날)을 채운다
+function closePredecessors(rec){
+  const prev = S.directors.filter(d => d.id !== rec.id && d.termStart && d.termStart < rec.termStart
+    && (!d.leaveDate || d.leaveDate >= rec.termStart)
+    && ((d.name === rec.name && d.type === rec.type) || (rec.type === '상임' && d.type === '상임' && d.role && d.role === rec.role)));
+  if (!prev.length) return;
+  const end = dayAfter(rec.termStart, -1);
+  if (confirm(`전임 기록의 퇴임일을 ${fmtDate(end)}로 입력할까요?\n\n` + prev.map(d => `· ${d.name} (${roleLabel(d)}, 임기 ${fmtDate(d.termStart)}~${fmtDate(d.termEnd)})`).join('\n')))
+    prev.forEach(d => d.leaveDate = end);
+}
+function parseDate(v){
+  v = String(v || '').trim(); if (!v) return '';
+  let m = v.match(/^(\d{4})(\d{2})(\d{2})$/) || v.match(/^(\d{2,4})\D+(\d{1,2})\D+(\d{1,2})/);
+  if (!m) return null;
+  let y = +m[1]; if (y < 100) y += 2000;
+  const s = `${y}-${String(m[2]).padStart(2, '0')}-${String(m[3]).padStart(2, '0')}`;
+  return isNaN(Date.parse(s)) ? null : s;
+}
+function parseBulk(text){
+  const recs = [], errors = [];
+  text.split(/\r?\n/).forEach((line, i) => {
+    if (!line.trim()) return;
+    const c = (line.includes('\t') ? line.split('\t') : line.split(',')).map(x => x.trim());
+    if (i === 0 && /성명|이름/.test(c[0])) return;
+    const [name, typeRaw, roleRaw, s, e, l, note] = c;
+    const n = `${i + 1}행`;
+    let type = /^비상임/.test(typeRaw) ? '비상임' : /^상임/.test(typeRaw) ? '상임' : '';
+    let role = (roleRaw || '').replace(/\s/g, '');
+    if (!type) type = ROLES.비상임.includes(role) ? '비상임' : ROLES.상임.includes(role) ? '상임' : '';
+    if (!name) return errors.push(`${n}: 성명 없음`);
+    if (!type) return errors.push(`${n}: 구분(상임/비상임) 확인 필요`);
+    if (!ROLES[type].includes(role)) {
+      if (!role && type === '비상임') role = '비상임이사';
+      else return errors.push(`${n}: 직위 "${roleRaw || ''}" 확인 필요 (${ROLES[type].join('/')})`);
+    }
+    const termStart = parseDate(s), termEnd = parseDate(e), leaveDate = parseDate(l);
+    if (!termStart) return errors.push(`${n}: 임기 시작일 확인 필요`);
+    if (termEnd === null || leaveDate === null) return errors.push(`${n}: 날짜 형식 확인 필요`);
+    recs.push({ id: uid(), name, type, role, termStart, termEnd: termEnd || termEndFrom(termStart), leaveDate: leaveDate || '', note: note || '' });
+  });
+  return { recs, errors };
+}
+
 const actions = {
   newMeeting,
   back(){ ui.meetingId = null; render(); },
@@ -539,16 +792,66 @@ const actions = {
   agDel(el){ const m = curMeeting(); const a = m.agendas.find(x => x.id === el.dataset.id);
     if (a.title && !confirm(`${agendaLabel(a)} "${a.title}"을(를) 삭제할까요?`)) return;
     m.agendas = m.agendas.filter(x => x !== a); renumber(m); save(); render(); },
+  rmAdd(){ const m = curMeeting(); m.remarks.push({ id: uid(), directorId: '', agendaId: '', content: '', answer: '' }); save(); render(); },
+  rmDel(el){ const m = curMeeting(); const r = m.remarks.find(x => x.id === el.dataset.id);
+    if ((r.content || r.answer) && !confirm('이 발언을 삭제할까요?')) return;
+    m.remarks = m.remarks.filter(x => x !== r); save(); render(); },
+  rfName(el){ ui.rf.name = ui.rf.name === el.dataset.v ? '' : el.dataset.v; render(); },
+  csvRemarks(){
+    csv(`이사회_주요발언_${ui.rf.name || yTag()}.csv`, [['연도', '회차', '개최일', '구분', '발언임원', '직위', '관련안건', '발언내용', '답변내용(조치결과)']]
+      .concat(remarkRows().map(({ m, r, d, a }) => [m.year, m.seq, m.date, m.kind, d ? d.name : '', d ? roleLabel(d) : '', a ? `${agendaLabel(a)} ${a.title}` : '일반/기타', r.content, r.answer])));
+  },
   agUp(el){ moveAgenda(curMeeting(), el.dataset.id, -1); save(); render(); },
   agDown(el){ moveAgenda(curMeeting(), el.dataset.id, 1); save(); render(); },
   addDirector(){
-    S.directors.push({ id: uid(), name: '새 이사', type: '비상임', position: '', termStart: today(), termEnd: '' }); save(); render();
-    const inputs = document.querySelectorAll('[data-k="name"][data-dir]'); inputs.forEach(i => { if (i.value === '새 이사') { i.focus(); i.select(); } });
+    ui.dsub = 'history'; ui.bulk = false;
+    ui.draft = { id: uid(), name: '', type: '상임', role: ROLES.상임[0], termStart: today(), termEnd: termEndFrom(today()), leaveDate: '', note: '' };
+    render(); window.scrollTo(0, 0); $('[data-df="name"]').focus();
+  },
+  renew(el){
+    const d = dirById(el.dataset.id);
+    const start = d.termEnd ? dayAfter(d.termEnd) : today();
+    ui.dsub = 'history'; ui.bulk = false;
+    ui.draft = { id: uid(), name: d.name, type: d.type, role: d.role, termStart: start, termEnd: termEndFrom(start), leaveDate: '', note: '연임', _renew: true };
+    render(); window.scrollTo(0, 0);
+  },
+  dirCancel(){ ui.draft = null; render(); },
+  dirSave(){
+    const f = ui.draft;
+    f.name = (f.name || '').trim();
+    if (!f.name) return alert('성명을 입력하세요');
+    if (!f.termStart) return alert('임기 시작일을 입력하세요');
+    if (f.termEnd && f.termEnd < f.termStart) return alert('임기 만료일이 시작일보다 빠릅니다');
+    if (f.leaveDate && f.leaveDate < f.termStart) return alert('퇴임일이 임기 시작일보다 빠릅니다');
+    const rec = { id: f.id, name: f.name, type: f.type, role: f.role, termStart: f.termStart, termEnd: f.termEnd || termEndFrom(f.termStart), leaveDate: f.leaveDate || '', note: (f.note || '').trim() };
+    const i = S.directors.findIndex(d => d.id === rec.id);
+    if (i >= 0) S.directors[i] = rec; else S.directors.push(rec);
+    closePredecessors(rec);
+    ui.draft = null; save(); render(); toast('저장했습니다');
+  },
+  dsub(el){ ui.dsub = el.dataset.k; ui.draft = null; render(); },
+  asof(el){ ui.asOf = el.dataset.v; render(); },
+  bulkToggle(){ ui.bulk = !ui.bulk; ui.draft = null; render(); if (ui.bulk) $('#bulkText').focus(); },
+  bulkRun(){
+    const { recs, errors } = parseBulk($('#bulkText').value);
+    if (!recs.length) return alert(errors.length ? '등록할 수 있는 행이 없습니다.\n\n' + errors.slice(0, 10).join('\n') : '붙여넣은 내용이 없습니다');
+    if (!confirm(`${recs.length}명을 등록할까요?` + (errors.length ? `\n\n건너뛸 행 ${errors.length}개:\n` + errors.slice(0, 10).join('\n') : ''))) return;
+    S.directors.push(...recs); ui.bulk = false; save(); render(); toast(`${recs.length}명 등록했습니다`);
+  },
+  csvStatus(){
+    const date = ui.asOf;
+    csv(`임원현황_${date}.csv`, [['기준일', date], ['연번', '구분', '직위', '성명', '임기시작', '임기만료', '재임상태', '비고']]
+      .concat(seatedOn(date).sort(byRole).map((d, i) => { const s = statusOn(d, date); return [i + 1, d.type + '이사', roleLabel(d), d.name, d.termStart, d.termEnd, s.label + (s.detail ? ` (${s.detail})` : ''), d.note]; })));
+  },
+  csvHistory(){
+    const t = today();
+    csv(`역대임원명단_${t}.csv`, [['구분', '직위', '성명', '임기시작', '임기만료', '퇴임일', '현재상태', '비고']]
+      .concat(historyRows().map(d => [d.type + '이사', roleLabel(d), d.name, d.termStart, d.termEnd, d.leaveDate, statusOn(d, t).label, d.note])));
   },
   delDirector(el){
     const d = dirById(el.dataset.id);
     const used = S.meetings.some(m => m.attendees.includes(d.id));
-    if (!confirm(used ? `${d.name} 이사의 출석 기록이 있습니다. 삭제하면 과거 출석·수당 집계에서도 빠집니다.\n퇴임한 경우 임기 종료일만 입력하는 것을 권장합니다. 그래도 삭제할까요?` : `${d.name} 이사를 삭제할까요?`)) return;
+    if (!confirm(used ? `${d.name} 이사의 출석 기록이 있습니다. 삭제하면 과거 출석·수당 집계에서도 빠집니다.\n퇴임한 경우 삭제 대신 퇴임일 입력을 권장합니다. 그래도 삭제할까요?` : `${d.name} 이사를 삭제할까요?`)) return;
     S.directors = S.directors.filter(x => x !== d);
     S.meetings.forEach(m => m.attendees = m.attendees.filter(id => id !== d.id));
     save(); render();
@@ -580,8 +883,9 @@ const actions = {
 
 // 클릭
 document.addEventListener('click', e => {
-  const t = e.target.closest('[data-tab],[data-act],[data-open]');
+  const t = e.target.closest('[data-tab],[data-act],[data-open],[data-edit]');
   if (!t) return;
+  if (t.dataset.edit) { const d = dirById(t.dataset.edit); ui.tab = 'directors'; ui.dsub = 'history'; ui.bulk = false; ui.draft = Object.assign({}, d); render(); window.scrollTo(0, 0); return; }
   if (t.dataset.tab) { e.preventDefault(); ui.tab = t.dataset.tab; ui.meetingId = null; render(); window.scrollTo(0, 0); }
   else if (t.dataset.act) actions[t.dataset.act](t);
   else if (t.dataset.open) { ui.tab = 'meetings'; ui.meetingId = t.dataset.open; render(); window.scrollTo(0, 0); }
@@ -590,12 +894,24 @@ document.addEventListener('click', e => {
 // 입력 (텍스트는 change 시 저장 → 다시 그림, 검색만 즉시 반영)
 document.addEventListener('input', e => {
   const t = e.target;
+  if (t.dataset.rf === 'q') { ui.rf.q = t.value; const pos = t.selectionStart; render(); const n = document.querySelector('[data-rf="q"]'); n.focus(); n.setSelectionRange(pos, pos); return; }
+  if (t.dataset.hf === 'q') { ui.hf.q = t.value; const pos = t.selectionStart; render(); const n = document.querySelector('[data-hf="q"]'); n.focus(); n.setSelectionRange(pos, pos); return; }
+  if (t.dataset.df && ui.draft && !['type', 'termStart'].includes(t.dataset.df)) { ui.draft[t.dataset.df] = t.value; return; }
   if (t.dataset.af === 'q') { ui.af.q = t.value; const pos = t.selectionStart; render(); const n = document.querySelector('[data-af="q"]'); n.focus(); n.setSelectionRange(pos, pos); }
 });
 document.addEventListener('change', e => {
   const t = e.target, v = t.value;
   if (t.id === 'yearSel') { ui.year = v; ui.meetingId = null; render(); return; }
   if (t.dataset.af && t.dataset.af !== 'q') { ui.af[t.dataset.af] = v; render(); return; }
+  if (t.dataset.asof !== undefined) { if (v) { ui.asOf = v; render(); } return; }
+  if (t.dataset.hf && t.dataset.hf !== 'q') { ui.hf[t.dataset.hf] = v; render(); return; }
+  if (t.dataset.df && ui.draft) {
+    const f = ui.draft, k = t.dataset.df;
+    if (k === 'type') { f.type = v; if (!ROLES[v].includes(f.role)) f.role = ROLES[v][0]; render(); }
+    else if (k === 'termStart') { const auto = f.termStart ? termEndFrom(f.termStart) : ''; f.termStart = v; if (!f.termEnd || f.termEnd === auto) f.termEnd = v ? termEndFrom(v) : ''; render(); }
+    else f[k] = v;
+    return;
+  }
   if (t.dataset.set) {
     const k = t.dataset.set;
     S.settings[k] = k === 'depts' ? v.split('\n').map(s => s.trim()).filter(Boolean) : k === 'payTarget' ? v : Number(v) || 0;
@@ -623,12 +939,13 @@ document.addEventListener('change', e => {
     m.attendees = t.checked ? [...new Set([...m.attendees, id])] : m.attendees.filter(x => x !== id);
     save(); render(); return;
   }
+  if (t.dataset.rm && m) {
+    const r = m.remarks.find(x => x.id === t.dataset.rm); r[t.dataset.k] = v; save(); return;
+  }
+  if (t.dataset.rf && t.dataset.rf !== 'q') { ui.rf[t.dataset.rf] = v; render(); return; }
   if (t.dataset.ag && m) {
     const a = m.agendas.find(x => x.id === t.dataset.ag); a[t.dataset.k] = v.trim ? v.trim() : v;
     save(); if (t.dataset.k === 'result' || t.dataset.k === 'dept') render(); return;
-  }
-  if (t.dataset.dir) {
-    const d = dirById(t.dataset.dir); d[t.dataset.k] = v; save(); render(); return;
   }
 });
 $('#fileIn').addEventListener('change', e => {
@@ -650,10 +967,31 @@ $('#fileIn').addEventListener('change', e => {
 function sampleData(){
   const s = defaultState();
   s.settings.depts = ['기획조정실', '경영지원부', '재무회계부', '사업운영부', '감사실', '인사총무부'];
-  const st = [['김정훈','이사장'],['이영수','상임이사(기획)'],['박민정','상임이사(경영)'],['최성호','상임이사(사업)'],['정다은','상임이사(재무)'],['강태우','상임이사(운영)'],['윤서연','상임감사']];
-  const non = ['한지민','오세훈','서지우','임채원','조현우','신예린','배준호','홍미경'];
-  st.forEach(([n, p]) => s.directors.push({ id: uid(), name: n, type: '상임', position: p, termStart: '2025-01-01', termEnd: '' }));
-  non.forEach((n, i) => s.directors.push({ id: uid(), name: n, type: '비상임', position: '비상임이사', termStart: i === 7 ? '2026-07-01' : '2024-03-01', termEnd: i === 6 ? '2026-06-30' : '' }));
+  // 역대 + 현직 (상임 7석, 비상임 8석)
+  const people = [
+    // 성명, 구분, 직위, 임기시작, 퇴임일(빈칸=재직), 비고
+    ['문재호', '상임', '이사장', '2020-03-02', '2023-04-16', ''],
+    ['김정훈', '상임', '이사장', '2023-04-17', '', ''],
+    ['이영수', '상임', '부이사장', '2023-01-02', '', ''],
+    ['박민정', '상임', '기획관리이사', '2024-05-01', '', ''],
+    ['최성호', '상임', '기업금융이사', '2022-09-01', '2025-11-30', ''],
+    ['정다은', '상임', '기업금융이사', '2025-12-01', '', ''],
+    ['강태우', '상임', '글로벌혁신이사', '2023-02-01', '', ''],
+    ['윤서연', '상임', '지역혁신이사', '2024-01-02', '', ''],
+    ['송기범', '상임', '인력성장이사', '2023-03-15', '2026-07-31', ''],
+    ['유상철', '상임', '인력성장이사', '2026-08-01', '', ''],
+    ['한지민', '비상임', '선임비상임이사', '2023-03-01', '', ''],
+    ['오세훈', '비상임', '비상임이사', '2023-03-01', '', ''],
+    ['서지우', '비상임', '비상임이사', '2024-03-01', '', ''],
+    ['임채원', '비상임', '비상임이사', '2024-03-01', '', ''],
+    ['조현우', '비상임', '비상임이사', '2025-06-01', '', ''],
+    ['신예린', '비상임', '비상임이사', '2025-06-01', '', ''],
+    ['배준호', '비상임', '비상임이사', '2020-07-01', '2023-06-30', ''],
+    ['배준호', '비상임', '비상임이사', '2023-07-01', '2026-06-30', '연임'],
+    ['홍미경', '비상임', '비상임이사', '2026-07-01', '', ''],
+    ['장동민', '비상임', '노동이사', '2022-08-01', '', '']
+  ];
+  people.forEach(([name, type, role, termStart, leaveDate, note]) => s.directors.push({ id: uid(), name, type, role, termStart, termEnd: termEndFrom(termStart), leaveDate, note }));
   const plan = [
     ['2026-01-28', '대면', [['2026년도 사업계획 및 예산(안)', '기획조정실', '원안의결'], ['직제규정 일부개정규정(안)', '인사총무부', '수정의결']], [['2025년도 4분기 경영실적', '경영지원부']]],
     ['2026-02-25', '서면', [['2025회계연도 결산(안)', '재무회계부', '원안의결']], []],
@@ -663,12 +1001,23 @@ function sampleData(){
     ['2026-09-17', '대면', [['2027년도 예산편성 지침(안)', '기획조정실', '원안의결'], ['취업규칙 개정(안)', '인사총무부', '']], [['3분기 내부감사 결과', '감사실']]]
   ];
   plan.forEach(([date, kind, del, rep], i) => {
-    const m = { id: uid(), year: 2026, seq: i + 1, date, kind, rate: kind === '서면' ? 150000 : 400000, enrolledOverride: null, attendees: [], agendas: [], note: '' };
-    const seated = s.directors.filter(d => d.termStart <= date && (!d.termEnd || d.termEnd >= date));
+    const m = { id: uid(), year: 2026, seq: i + 1, date, kind, rate: kind === '서면' ? 150000 : 400000, enrolledOverride: null, attendees: [], agendas: [], remarks: [], note: '' };
+    const seated = s.directors.filter(d => isSeated(d, date));
     m.attendees = seated.filter((d, j) => (j * 7 + i * 3) % 10 > (kind === '서면' ? 0 : 1)).map(d => d.id);
     del.forEach(([t, d, r]) => m.agendas.push({ id: uid(), category: '심의', no: 0, title: t, dept: d, result: r, note: '' }));
     rep.forEach(([t, d]) => m.agendas.push({ id: uid(), category: '보고', no: 0, title: t, dept: d, result: '보고완료', note: '' }));
-    renumber(m); s.meetings.push(m);
+    renumber(m);
+    const talk = [
+      ['한지민', 0, '예산 증액분의 산출 근거와 중장기 재무 영향 분석 자료 보완 요청', '차기 이사회 보고 시 재무영향 분석 자료 제출 예정 (기획조정실)'],
+      ['장동민', 1, '규정 개정에 따른 직원 근로조건 변경 여부 및 노조 의견수렴 절차 확인', '근로조건 불이익 변경 없음. 노사협의회 사전 설명 완료'],
+      ['오세훈', 0, '자산 취득 시 감정평가 복수 실시 필요', '복수 감정평가 후 재상정하기로 함'],
+      ['서지우', 0, '성과지표 중 정량지표 비중 확대 검토 요청', '의견 반영하여 수정']
+    ];
+    const [who, ai, c, ans] = talk[i % talk.length];
+    const d = seated.find(x => x.name === who) || seated[0];
+    if (!m.attendees.includes(d.id)) m.attendees.push(d.id);
+    m.remarks = [{ id: uid(), directorId: d.id, agendaId: (m.agendas[ai] || m.agendas[0]).id, content: c, answer: ans }];
+    s.meetings.push(m);
   });
   return s;
 }
