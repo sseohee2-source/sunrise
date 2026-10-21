@@ -6,7 +6,8 @@
  * - 연임(부이사장, 비상임이사), 직책 변경(비상임이사 → 선임비상임이사), 중도 퇴임
  * - 임기 종료 후 후임 미선임으로 직무수행 중(기업금융이사), 현재 결원(지역혁신이사)
  * - 임기 만료 3개월 이내(감사), 수당 연간 한도 근접(황보석)
- * - 서면·기타(화상) 이사회, 재적이사 1/3 이상 요구 소집, 보수기준 안건 의결제외
+ * - 서면·기타(화상) 이사회, 재적이사 1/3 이상 요구 소집
+ * - 이해관계 안건 의결제외 (임원 보수기준 안건, 이사 소속기관과의 협약 안건)
  */
 import { PrismaClient } from "@prisma/client";
 import { isServingOn } from "../src/lib/domain/appointment";
@@ -356,7 +357,6 @@ async function main() {
           contact: pick(STAFF),
           result: done ? "ORIGINAL" : null,
           keywords: "보수,임원,보수기준",
-          isCompensation: true,
           description: "기관장 및 상임이사 기본연봉·성과연봉 기준 조정",
         },
       });
@@ -365,6 +365,30 @@ async function main() {
       for (const a of members.filter((x) => x.position.category === "STANDING")) {
         await prisma.agendaRecusal.create({
           data: { agendaId: ag.id, appointmentId: a.id, reason: "본인 보수 관련 특별한 이해관계" },
+        });
+      }
+    }
+    // 2025년 9월 회의: 비상임이사 소속 기관과의 협약 안건 → 해당 이사 의결제외
+    if (ms.date === "2025-09-25") {
+      dNo++;
+      const ag = await prisma.agenda.create({
+        data: {
+          meetingId: meeting.id,
+          type: "DELIBERATION",
+          agendaNo: dNo,
+          title: "○○대학교 산학협력 업무협약 체결(안)",
+          departmentId: depts.get("인재육성처")!,
+          presenter: "인재육성처장",
+          contact: pick(STAFF),
+          result: done ? "ORIGINAL" : null,
+          keywords: "산학협력,업무협약",
+        },
+      });
+      agendaIds.push(ag.id);
+      const target = members.find((x) => x.position.category === "NON_STANDING" && x.person.career?.includes("대학교"));
+      if (target) {
+        await prisma.agendaRecusal.create({
+          data: { agendaId: ag.id, appointmentId: target.id, reason: "협약 상대 기관 소속(교수)으로 특별한 이해관계" },
         });
       }
     }

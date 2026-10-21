@@ -123,7 +123,6 @@ CREATE TABLE "Agenda" (
     "amendment" TEXT,
     "description" TEXT,
     "keywords" TEXT,
-    "isCompensation" BOOLEAN NOT NULL DEFAULT false,
     "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" DATETIME NOT NULL,
     CONSTRAINT "Agenda_meetingId_fkey" FOREIGN KEY ("meetingId") REFERENCES "Meeting" ("id") ON DELETE CASCADE ON UPDATE CASCADE,

@@ -173,7 +173,6 @@ model Agenda {
   amendment        String? // 수정 내용
   description      String?
   keywords         String? // 키워드(쉼표 구분)
-  isCompensation   Boolean           @default(false) // 임원 보수기준 관련 안건
   createdAt        DateTime          @default(now())
   updatedAt        DateTime          @updatedAt
   meeting          Meeting           @relation(fields: [meetingId], references: [id], onDelete: Cascade)
@@ -201,7 +200,7 @@ model Attendance {
   @@unique([meetingId, appointmentId])
 }
 
-/// 안건별 의결제외 (해당 안건의 재적인원에서 제외)
+/// 안건별 의결제외: 안건과 특별한 이해관계가 있는 이사 (보수기준·협약 등 사유 무관). 해당 안건의 재적인원에서 제외
 model AgendaRecusal {
   id            Int         @id @default(autoincrement())
   agendaId      Int

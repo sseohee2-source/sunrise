@@ -8,7 +8,7 @@
 |---|---|---|
 | 임기 만료 후 후임 미선임 | 임기는 그대로 두고, 실제 퇴임일이 비어 있으면 '재임중(임기만료·직무수행)' | `Appointment.retiredDate` 공란 기준으로 상태 계산 |
 | 안건 번호 | 구분별 별도 채번: 심의 제1호…, 보고 제1호… | `Agenda.type` + `Agenda.agendaNo` (표시: "심의 제1호") |
-| 보수기준 안건 의결제외 | 자동 후보 제안 없이, 이해관계 이사를 안건에 추가하면 재적인원에서 빠짐 | `Agenda.compensationScope`, `Position.compensationRole` 삭제. `isCompensation`은 표시·검색용 체크로 유지 |
+| 이해관계 안건 의결제외 | 보수기준에 한정하지 않고 모든 안건에서, 이해관계 이사를 의결제외로 추가하고 사유를 적으면 해당 안건 재적인원에서 빠짐 | `Agenda.isCompensation`, `Agenda.compensationScope`, `Position.compensationRole` 삭제. `AgendaRecusal`(이사 + 사유)로만 관리 |
 | 정액급여 | 일할계산 (설정에서 끌 수 있음) | `AppSetting allowance.proRata = true` 기본값 |
 | 연간 한도 | 연중 취임·퇴임과 관계없이 1인당 연 한도 동일 | |
 | 로그인 | 불필요 | |
@@ -123,7 +123,6 @@ erDiagram
         string amendment "수정 내용"
         string description "설명"
         string keywords "키워드(쉼표 구분)"
-        bool isCompensation "임원 보수기준 관련"
     }
     Attendance {
         int id PK
@@ -138,7 +137,7 @@ erDiagram
         int id PK
         int agendaId FK
         int appointmentId FK
-        string reason "의결제외 사유"
+        string reason "의결제외 사유(이해관계 내용)"
     }
     Remark {
         int id PK
