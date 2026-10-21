@@ -29,19 +29,20 @@ const pick = <T,>(arr: readonly T[]): T => arr[Math.floor(rand() * arr.length)];
 const chance = (p: number) => rand() < p;
 
 // ───────────── 마스터 ─────────────
+// [구분, 직책, 정원, 재적이사 포함, 수당 지급 대상, 기본 임기(년, null=해당 직책 재임기간)]
 const POSITIONS = [
-  ["STANDING", "이사장", 1, true, false],
-  ["STANDING", "부이사장", 1, true, false],
-  ["STANDING", "기획관리이사", 1, true, false],
-  ["STANDING", "기업금융이사", 1, true, false],
-  ["STANDING", "글로벌성장이사", 1, true, false],
-  ["STANDING", "인력성장이사", 1, true, false],
-  ["STANDING", "지역혁신이사", 1, true, false],
-  ["STANDING", "감사", 1, false, false],
-  ["NON_STANDING", "선임비상임이사", 1, true, true],
-  ["NON_STANDING", "비상임이사", 6, true, true],
-  ["NON_STANDING", "노동이사", 1, true, false],
-  ["NON_STANDING", "당연직이사", 1, true, false],
+  ["STANDING", "이사장", 1, true, false, 3],
+  ["STANDING", "부이사장", 1, true, false, 2],
+  ["STANDING", "기획관리이사", 1, true, false, 2],
+  ["STANDING", "기업금융이사", 1, true, false, 2],
+  ["STANDING", "글로벌성장이사", 1, true, false, 2],
+  ["STANDING", "인력성장이사", 1, true, false, 2],
+  ["STANDING", "지역혁신이사", 1, true, false, 2],
+  ["STANDING", "감사", 1, false, false, 2],
+  ["NON_STANDING", "선임비상임이사", 1, true, true, 2],
+  ["NON_STANDING", "비상임이사", 6, true, true, 2],
+  ["NON_STANDING", "노동이사", 1, true, false, 2],
+  ["NON_STANDING", "당연직이사", 1, true, false, null],
 ] as const;
 
 const DEPARTMENTS = [
@@ -77,7 +78,7 @@ type ApptSeed = {
   person: string;
   position: string;
   start: string;
-  end: string;
+  end: string | null; // null = 해당 직책 재임기간(당연직)
   retired?: string;
   re?: boolean;
   note?: string;
@@ -88,7 +89,8 @@ const APPTS: ApptSeed[] = [
   { person: "김정훈", position: "이사장", start: "2023-03-02", end: "2026-03-01", retired: "2026-03-01" },
   { person: "박상민", position: "이사장", start: "2026-03-02", end: "2029-03-01" },
   { person: "이도윤", position: "부이사장", start: "2023-07-01", end: "2025-06-30", retired: "2025-06-30" },
-  { person: "이도윤", position: "부이사장", start: "2025-07-01", end: "2027-06-30", re: true },
+  { person: "이도윤", position: "부이사장", start: "2025-07-01", end: "2026-06-30", retired: "2026-06-30", re: true, note: "1년 연임" },
+  { person: "이도윤", position: "부이사장", start: "2026-07-01", end: "2027-06-30", re: true, note: "1년 연임(2회)" },
   { person: "최수진", position: "기획관리이사", start: "2024-01-15", end: "2026-01-14", retired: "2026-01-14" },
   { person: "정해원", position: "기획관리이사", start: "2026-01-15", end: "2028-01-14" },
   { person: "윤재석", position: "기업금융이사", start: "2022-09-01", end: "2024-08-31", retired: "2024-08-31" },
@@ -99,19 +101,21 @@ const APPTS: ApptSeed[] = [
   { person: "임채원", position: "인력성장이사", start: "2023-05-15", end: "2025-05-14", retired: "2025-05-14" },
   { person: "조은비", position: "인력성장이사", start: "2025-05-15", end: "2027-05-14" },
   { person: "문성호", position: "지역혁신이사", start: "2023-06-01", end: "2025-05-31", retired: "2025-05-31" },
-  { person: "문성호", position: "지역혁신이사", start: "2025-06-01", end: "2027-05-31", retired: "2026-06-30", re: true, note: "일신상 사유 중도 퇴임" },
-  { person: "배경수", position: "감사", start: "2024-01-02", end: "2026-12-31" },
+  { person: "문성호", position: "지역혁신이사", start: "2025-06-01", end: "2026-05-31", retired: "2026-06-30", re: true, note: "1년 연임, 임기만료 후 직무수행하다 퇴임" },
+  { person: "오정민", position: "감사", start: "2023-01-02", end: "2025-01-01", retired: "2025-01-01" },
+  { person: "배경수", position: "감사", start: "2025-01-02", end: "2027-01-01" },
   // 비상임
   { person: "남궁현", position: "선임비상임이사", start: "2023-04-01", end: "2025-03-31", retired: "2025-03-31" },
   { person: "유지혜", position: "비상임이사", start: "2023-04-01", end: "2025-03-31", retired: "2025-03-31" },
   { person: "유지혜", position: "선임비상임이사", start: "2025-04-01", end: "2027-03-31", note: "비상임이사에서 선임비상임이사로 선임" },
   { person: "황보석", position: "비상임이사", start: "2023-04-01", end: "2025-03-31", retired: "2025-03-31" },
-  { person: "황보석", position: "비상임이사", start: "2025-04-01", end: "2027-03-31", re: true },
+  { person: "황보석", position: "비상임이사", start: "2025-04-01", end: "2026-03-31", retired: "2026-03-31", re: true, note: "1년 연임" },
+  { person: "황보석", position: "비상임이사", start: "2026-04-01", end: "2027-03-31", re: true, note: "1년 연임(2회)" },
   { person: "서윤아", position: "비상임이사", start: "2022-02-01", end: "2024-01-31", retired: "2024-01-31" },
   { person: "신미경", position: "비상임이사", start: "2024-02-01", end: "2026-01-31", retired: "2026-01-31" },
   { person: "고태현", position: "비상임이사", start: "2026-02-01", end: "2028-01-31" },
   { person: "전상우", position: "비상임이사", start: "2024-02-01", end: "2026-01-31", retired: "2026-01-31" },
-  { person: "전상우", position: "비상임이사", start: "2026-02-01", end: "2028-01-31", re: true },
+  { person: "전상우", position: "비상임이사", start: "2026-02-01", end: "2027-01-31", re: true, note: "1년 연임" },
   { person: "류하은", position: "비상임이사", start: "2023-09-01", end: "2025-08-31", retired: "2025-08-31" },
   { person: "차민석", position: "비상임이사", start: "2025-09-01", end: "2027-08-31" },
   { person: "마동준", position: "비상임이사", start: "2022-06-01", end: "2024-05-31", retired: "2024-05-31" },
@@ -120,8 +124,8 @@ const APPTS: ApptSeed[] = [
   { person: "양준혁", position: "비상임이사", start: "2025-04-01", end: "2027-03-31" },
   { person: "김노을", position: "노동이사", start: "2023-10-01", end: "2025-09-30", retired: "2025-09-30" },
   { person: "이한결", position: "노동이사", start: "2025-10-01", end: "2027-09-30" },
-  { person: "장민재", position: "당연직이사", start: "2024-01-01", end: "2025-12-31", retired: "2025-08-15", note: "소속 부처 인사이동" },
-  { person: "홍성빈", position: "당연직이사", start: "2025-08-16", end: "2027-08-15" },
+  { person: "장민재", position: "당연직이사", start: "2024-01-01", end: null, retired: "2025-08-15", note: "소속 부처 인사이동" },
+  { person: "홍성빈", position: "당연직이사", start: "2025-08-16", end: null },
 ];
 
 // ───────────── 이사회 ─────────────
@@ -216,9 +220,9 @@ async function main() {
 
   // 마스터
   const positions = new Map<string, { id: number; countsAsMember: boolean; allowanceEligible: boolean; category: string }>();
-  for (const [i, [category, name, quota, countsAsMember, allowanceEligible]] of POSITIONS.entries()) {
+  for (const [i, [category, name, quota, countsAsMember, allowanceEligible, termYears]] of POSITIONS.entries()) {
     const p = await prisma.position.create({
-      data: { category, name, quota, countsAsMember, allowanceEligible, sortOrder: (i + 1) * 10 },
+      data: { category, name, quota, countsAsMember, allowanceEligible, termYears, sortOrder: (i + 1) * 10 },
     });
     positions.set(name, p);
   }

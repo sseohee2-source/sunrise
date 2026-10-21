@@ -14,7 +14,7 @@ export type RowData = {
   positionId: number;
   positionName: string;
   startDate: string;
-  endDate: string;
+  endDate: string | null;
   retiredDate: string | null;
   isReappointment: boolean;
   note: string | null;

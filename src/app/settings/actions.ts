@@ -35,6 +35,8 @@ export type PositionInput = {
   category: string;
   name: string;
   quota: number;
+  /** 기본 임기(년). null = 해당 직책 재임기간(당연직) */
+  termYears: number | null;
   countsAsMember: boolean;
   allowanceEligible: boolean;
   isActive: boolean;
@@ -46,12 +48,16 @@ export async function savePosition(input: PositionInput): Promise<ActionResult> 
   if (!name) return { ok: false, error: "직책명을 입력하세요." };
   if (!["STANDING", "NON_STANDING"].includes(input.category)) return { ok: false, error: "구분을 선택하세요." };
   if (!Number.isInteger(input.quota) || input.quota < 0) return { ok: false, error: "정원은 0 이상의 정수로 입력하세요." };
+  if (input.termYears != null && (!Number.isInteger(input.termYears) || input.termYears < 1)) {
+    return { ok: false, error: "기본 임기는 1 이상의 정수(년)로 입력하거나 비워 두세요." };
+  }
   const dup = await prisma.position.findFirst({ where: { name, id: input.id ? { not: input.id } : undefined } });
   if (dup) return { ok: false, error: `'${name}' 직책이 이미 있습니다.` };
   const data = {
     category: input.category,
     name,
     quota: input.quota,
+    termYears: input.termYears,
     countsAsMember: input.countsAsMember,
     allowanceEligible: input.allowanceEligible,
     isActive: input.isActive,
@@ -64,6 +70,7 @@ export async function savePosition(input: PositionInput): Promise<ActionResult> 
       category: "구분",
       name: "직책명",
       quota: "정원",
+      termYears: "기본 임기(년)",
       countsAsMember: "재적이사 포함",
       allowanceEligible: "수당 지급 대상",
       isActive: "사용",

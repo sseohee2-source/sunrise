@@ -143,7 +143,7 @@ export async function getOfficerFormOptions() {
     }),
   ]);
   return {
-    positions: positions.map((p) => ({ id: p.id, name: p.name, category: p.category })),
+    positions: positions.map((p) => ({ id: p.id, name: p.name, category: p.category, termYears: p.termYears })),
     persons: persons.map((p) => ({
       id: p.id,
       name: p.name,
@@ -151,7 +151,7 @@ export async function getOfficerFormOptions() {
       career: p.career,
       note: p.note,
       summary:
-        p.appointments.map((a) => `${a.position.name} ${a.startDate.slice(2, 4)}~${(a.retiredDate ?? a.endDate).slice(2, 4)}`).join(", ") ||
+        p.appointments.map((a) => `${a.position.name} ${a.startDate.slice(2, 4)}~${(a.retiredDate ?? a.endDate ?? "    현재").slice(2, 4)}`).join(", ") ||
         "재임 기록 없음",
       positionIds: [...new Set(p.appointments.map((a) => a.positionId))],
     })),

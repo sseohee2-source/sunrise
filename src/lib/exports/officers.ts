@@ -14,7 +14,7 @@ export function rosterSheet(roster: RosterEntry[], on: string): SheetSpec<Roster
   return {
     name: "임원현황",
     title: `임원 현황(${fmtDate(on)} 기준)`,
-    notes: ["노란색: 임기 만료 3개월 이내 또는 임기만료 후 직무수행 중 / 붉은색: 결원"],
+    notes: ["노란색: 임기 만료 3개월 이내 또는 직무수행(임기만료 후 후임자 임명 시까지) / 붉은색: 결원 / 임기 종료가 빈 칸: 해당 직책 재임기간(당연직)"],
     columns: [
       { header: "구분", key: "category", value: (r) => label(POSITION_CATEGORY, r.category) },
       { header: "직책", key: "positionName" },
@@ -53,9 +53,14 @@ export function rosterPrintSheet(roster: RosterEntry[], on: string, includeVacan
   };
 }
 
-/** 임원명단 임기 표기 ('24.03.02~'27.03.01, 임기만료 후 직무수행 중이면 둘째 줄에 표시) */
-export function termText(a: { startDate: string; endDate: string; status: string }): string {
-  return fmtTerm(a.startDate, a.endDate) + (a.status === "EXPIRED_SERVING" ? "\n(직무수행 중)" : "");
+/**
+ * 임원명단 임기 표기 ('24.03.02~'27.03.01)
+ * - 임기만료 후 직무수행 중이면 둘째 줄에 (직무수행)
+ * - 당연직이사처럼 종료일이 없으면 '24.03.02~ 둘째 줄에 (당연직)
+ */
+export function termText(a: { startDate: string; endDate: string | null; status: string }): string {
+  if (!a.endDate) return `${fmtTerm(a.startDate, null)}\n(당연직)`;
+  return fmtTerm(a.startDate, a.endDate) + (a.status === "EXPIRED_SERVING" ? "\n(직무수행)" : "");
 }
 
 /** 역대 임원 리스트 */

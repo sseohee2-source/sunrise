@@ -27,6 +27,11 @@ export async function GET() {
         { header: "구분", key: "category", value: (r: (typeof d.positions)[number]) => label(POSITION_CATEGORY, r.category) },
         { header: "직책", key: "name" },
         { header: "정원", key: "quota", type: "int", total: "sum" },
+        {
+          header: "기본 임기",
+          key: "termYears",
+          value: (r: (typeof d.positions)[number]) => (r.termYears != null ? `${r.termYears}년` : "해당 직책 재임기간"),
+        },
         { header: "재적이사 포함", key: "m", value: (r: (typeof d.positions)[number]) => OX(r.countsAsMember) },
         { header: "수당 지급 대상", key: "a", value: (r: (typeof d.positions)[number]) => OX(r.allowanceEligible) },
         { header: "사용", key: "act", value: (r: (typeof d.positions)[number]) => OX(r.isActive) },

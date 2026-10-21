@@ -13,9 +13,11 @@ import { daysBetweenInclusive, fmtDate, today } from "@/lib/date";
 import { getRoster, type RosterEntry } from "@/lib/queries/officers";
 import { cn } from "@/lib/utils";
 import { isDate } from "@/lib/action-result";
+import { termRange } from "@/lib/domain/appointment";
 import { ApptStatusBadge } from "./_components/status-badge";
 
-function remaining(end: string, on: string): string {
+function remaining(end: string | null, on: string): string {
+  if (!end) return "-";
   const d = daysBetweenInclusive(on, end) - 1;
   if (d < 0) return `${-d}일 경과`;
   const m = Math.floor(d / 30.4);
@@ -60,7 +62,7 @@ function RosterTable({ entries, on }: { entries: RosterEntry[]; on: string }) {
                 <>
                   <TableCell className="font-medium">{a.person.name}</TableCell>
                   <TableCell className="whitespace-nowrap tabular-nums">
-                    {fmtDate(a.startDate)} ~ {fmtDate(a.endDate)}
+                    {termRange(a)}
                   </TableCell>
                   <TableCell className="whitespace-nowrap tabular-nums">{remaining(a.endDate, on)}</TableCell>
                   <TableCell>
@@ -98,14 +100,14 @@ export default async function OfficersPage({ searchParams }: PageProps<"/officer
     ["현원", current],
     ["결원", vacancies],
     ["재적이사", members],
-    ["임기만료 임박·경과", expiring.length],
+    ["만료 임박·직무수행", expiring.length],
   ] as const;
 
   return (
     <>
       <PageHeader
         title="임원 현황"
-        description={`${fmtDate(on)} 기준 재임 중인 임원입니다. 임기 만료 3개월 이내 또는 임기만료 후 직무수행 중인 임원은 노란색으로 표시됩니다.`}
+        description={`${fmtDate(on)} 기준 재임 중인 임원입니다. 임기 만료 3개월 이내 또는 직무수행(임기만료 후 후임자 임명 시까지) 중인 임원은 노란색으로 표시됩니다.`}
         actions={
           <>
             <Suspense>
@@ -132,7 +134,7 @@ export default async function OfficersPage({ searchParams }: PageProps<"/officer
           <AlertTriangle />
           <AlertDescription>
             {expiring
-              .map((a) => `${a.person.name}(${fmtDate(a.endDate)} ${a.status === "EXPIRED_SERVING" ? "임기만료·직무수행 중" : "만료 예정"})`)
+              .map((a) => `${a.person.name}(${fmtDate(a.endDate)} ${a.status === "EXPIRED_SERVING" ? "임기만료, 후임자 임명 시까지 직무수행" : "만료 예정"})`)
               .join(", ")}
           </AlertDescription>
         </Alert>

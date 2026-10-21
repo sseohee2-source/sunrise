@@ -19,6 +19,7 @@ model Position {
   category          String // STANDING 상임 / NON_STANDING 비상임
   name              String        @unique
   quota             Int           @default(1) // 정원
+  termYears         Int? // 기본 임기(년). 비어 있으면 '해당 직책 재임기간'(당연직이사)
   countsAsMember    Boolean       @default(true) // 재적이사 포함
   allowanceEligible Boolean       @default(false) // 수당 지급 대상
   sortOrder         Int           @default(0)
@@ -96,13 +97,13 @@ model Person {
   committeeAttendances CommitteeAttendance[]
 }
 
-/// 재임 (실제 퇴임일이 비어 있고 임기 종료일이 지났으면 '재임중(임기만료·직무수행)')
+/// 재임 (실제 퇴임일이 비어 있고 임기 종료일이 지났으면 '직무수행': 후임자 임명 시까지 직무 수행)
 model Appointment {
   id              Int                    @id @default(autoincrement())
   personId        Int
   positionId      Int
   startDate       String // 임기 시작일
-  endDate         String // 임기 종료일(예정)
+  endDate         String? // 임기 종료일(예정). 당연직이사는 비움(해당 직책 재임기간)
   retiredDate     String? // 실제 퇴임일
   isReappointment Boolean                @default(false) // 연임 여부
   note            String?

@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 
 import { isDate, nn, type ActionResult } from "@/lib/action-result";
 import { logEvent, logUpdate } from "@/lib/changelog";
-import { fmtDate } from "@/lib/date";
+import { fmtDate, termEnd } from "@/lib/date";
 import { prisma } from "@/lib/db";
 import { describeViolation, findQuotaViolations } from "@/lib/queries/officers";
 
@@ -40,8 +40,14 @@ export async function saveOfficer(input: OfficerInput): Promise<ActionResult> {
   const name = input.person.name.trim();
   if (!name) return { ok: false, error: "성명을 입력하세요." };
   if (!input.positionId) return { ok: false, error: "직책을 선택하세요." };
-  if (!isDate(input.startDate) || !isDate(input.endDate)) return { ok: false, error: "임기 시작일과 종료일을 입력하세요." };
-  if (input.endDate < input.startDate) return { ok: false, error: "임기 종료일이 시작일보다 빠릅니다." };
+  const position = await prisma.position.findUnique({ where: { id: input.positionId } });
+  if (!position) return { ok: false, error: "직책을 찾을 수 없습니다." };
+  if (!isDate(input.startDate)) return { ok: false, error: "임기 시작일을 입력하세요." };
+  const endDate = nn(input.endDate);
+  // 당연직이사처럼 기본 임기가 없는 직책은 종료일을 비워 둘 수 있음 (해당 직책 재임기간)
+  if (!endDate && position.termYears != null) return { ok: false, error: "임기 종료일을 입력하세요." };
+  if (endDate && !isDate(endDate)) return { ok: false, error: "임기 종료일 형식이 올바르지 않습니다." };
+  if (endDate && endDate < input.startDate) return { ok: false, error: "임기 종료일이 시작일보다 빠릅니다." };
   const retiredDate = nn(input.retiredDate);
   if (retiredDate && !isDate(retiredDate)) return { ok: false, error: "실제 퇴임일 형식이 올바르지 않습니다." };
   if (retiredDate && retiredDate < input.startDate) return { ok: false, error: "실제 퇴임일이 임기 시작일보다 빠릅니다." };
@@ -55,14 +61,11 @@ export async function saveOfficer(input: OfficerInput): Promise<ActionResult> {
   const apptData = {
     positionId: input.positionId,
     startDate: input.startDate,
-    endDate: input.endDate,
+    endDate,
     retiredDate,
     isReappointment: input.isReappointment,
     note: nn(input.note),
   };
-
-  const position = await prisma.position.findUnique({ where: { id: input.positionId } });
-  if (!position) return { ok: false, error: "직책을 찾을 수 없습니다." };
 
   await prisma.$transaction(async (tx) => {
     let personId = input.personId;
@@ -90,9 +93,21 @@ export async function saveOfficer(input: OfficerInput): Promise<ActionResult> {
     }
   });
 
-  // 정원 초과 기간 경고 (저장은 그대로 함)
+  // 경고 (저장은 그대로 함)
+  const warnings: string[] = [];
+  // 정관 제7조 임기: 이사장 3년, 이사·감사 2년, 연임은 1년 단위
+  if (position.termYears != null && endDate) {
+    const years = input.isReappointment ? 1 : position.termYears;
+    const expected = termEnd(input.startDate, years);
+    if (endDate !== expected) {
+      warnings.push(
+        `${input.isReappointment ? "연임(1년 단위)" : `${position.name} 임기(${years}년)`} 기준 종료일은 ${fmtDate(expected)}인데 ${fmtDate(endDate)}로 입력되었습니다.`,
+      );
+    }
+  }
+  // 정원 초과 기간
   const appts = await prisma.appointment.findMany({ where: { positionId: input.positionId }, include: { person: true } });
-  const warnings = findQuotaViolations(appts, position.quota).map((v) => describeViolation(position.name, position.quota, v));
+  warnings.push(...findQuotaViolations(appts, position.quota).map((v) => describeViolation(position.name, position.quota, v)));
 
   revalidateOfficers();
   return { ok: true, warnings };

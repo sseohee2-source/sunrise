@@ -24,6 +24,7 @@ function PositionDialog({ initial, trigger }: { initial?: PositionRow; trigger: 
     category: "NON_STANDING",
     name: "",
     quota: 1,
+    termYears: 2,
     countsAsMember: true,
     allowanceEligible: false,
     isActive: true,
@@ -58,7 +59,15 @@ function PositionDialog({ initial, trigger }: { initial?: PositionRow; trigger: 
           <Field label="정원" required>
             <Input type="number" min={0} value={v.quota} onChange={(e) => setV({ ...v, quota: Number(e.target.value) })} />
           </Field>
-          <Field label="비고">
+          <Field label="기본 임기(년)" hint="비워 두면 '해당 직책 재임기간' (당연직이사)">
+            <Input
+              type="number"
+              min={1}
+              value={v.termYears ?? ""}
+              onChange={(e) => setV({ ...v, termYears: e.target.value ? Number(e.target.value) : null })}
+            />
+          </Field>
+          <Field label="비고" className="col-span-2">
             <Input value={v.note} onChange={(e) => setV({ ...v, note: e.target.value })} />
           </Field>
         </div>
@@ -98,6 +107,8 @@ export function PositionsTab({ positions }: { positions: PositionRow[] }) {
       <div className="flex items-center justify-between">
         <p className="text-muted-foreground text-sm">
           이 순서가 모든 목록과 출력물의 직책 순서가 됩니다. 화살표로 순서를 바꿀 수 있습니다.
+          <br />
+          기본 임기는 임원 등록 시 종료일 자동 계산에 쓰입니다 (정관 제7조: 이사장 3년, 이사·감사 2년, 연임 1년 단위, 당연직은 재임기간).
         </p>
         <PositionDialog trigger={<Button size="sm"><Plus />직책 추가</Button>} />
       </div>
@@ -108,6 +119,7 @@ export function PositionsTab({ positions }: { positions: PositionRow[] }) {
             <TableHead>구분</TableHead>
             <TableHead>직책</TableHead>
             <TableHead className="text-center">정원</TableHead>
+            <TableHead className="text-center">기본 임기</TableHead>
             <TableHead className="text-center">재적이사 포함</TableHead>
             <TableHead className="text-center">수당 지급 대상</TableHead>
             <TableHead>비고</TableHead>
@@ -125,6 +137,9 @@ export function PositionsTab({ positions }: { positions: PositionRow[] }) {
                 {p.name} {!p.isActive && <Badge variant="outline">사용 안 함</Badge>}
               </TableCell>
               <TableCell className="text-center tabular-nums">{p.quota}</TableCell>
+              <TableCell className="text-center tabular-nums">
+                {p.termYears != null ? `${p.termYears}년` : <span className="text-muted-foreground text-xs">재임기간</span>}
+              </TableCell>
               <TableCell className="text-center">{p.countsAsMember ? O : X}</TableCell>
               <TableCell className="text-center">{p.allowanceEligible ? O : X}</TableCell>
               <TableCell className="text-muted-foreground text-xs">{p.note}</TableCell>

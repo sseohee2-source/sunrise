@@ -16,6 +16,7 @@ import { prisma } from "@/lib/db";
 import { getAllQuotaWarnings, getHistory, getOfficerFormOptions, parseHistoryFilter } from "@/lib/queries/officers";
 import { OfficerDialog } from "../_components/officer-dialog";
 import { OfficerRowActions } from "../_components/row-actions";
+import { termRange } from "@/lib/domain/appointment";
 import { ApptStatusBadge } from "../_components/status-badge";
 
 export default async function OfficerHistoryPage({ searchParams }: PageProps<"/officers/history">) {
@@ -138,7 +139,7 @@ export default async function OfficerHistoryPage({ searchParams }: PageProps<"/o
                   {a.isReappointment && <Badge variant="outline" className="ml-1">연임</Badge>}
                 </TableCell>
                 <TableCell className="align-top tabular-nums">
-                  {fmtDate(a.startDate)} ~ {fmtDate(a.endDate)}
+                  {termRange(a)}
                 </TableCell>
                 <TableCell className="align-top tabular-nums">{fmtDate(a.retiredDate)}</TableCell>
                 <TableCell className="align-top">

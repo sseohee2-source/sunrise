@@ -15,7 +15,7 @@ export function fmtShortDate(d: string | null | undefined): string {
   return d ? `'${d.slice(2).replaceAll("-", ".")}` : "";
 }
 
-/** 임기 표기: '24.03.02~'27.03.01 */
+/** 임기 표기: '24.03.02~'27.03.01 (종료일이 없으면 '24.03.02~) */
 export function fmtTerm(start: string, end: string | null | undefined): string {
   return `${fmtShortDate(start)}~${fmtShortDate(end)}`;
 }
@@ -35,6 +35,12 @@ export function todayCompact(): string {
 export function addDays(d: string, n: number): string {
   const [y, m, day] = d.split("-").map(Number);
   return new Date(Date.UTC(y, m - 1, day + n)).toISOString().slice(0, 10);
+}
+
+/** n년 임기의 종료일: 시작일 + n년 − 1일 (예: 2024-03-02 + 2년 → 2026-03-01) */
+export function termEnd(start: string, years: number): string {
+  const [y, m, day] = start.split("-").map(Number);
+  return new Date(Date.UTC(y + years, m - 1, day - 1)).toISOString().slice(0, 10);
 }
 
 export function addMonths(d: string, n: number): string {

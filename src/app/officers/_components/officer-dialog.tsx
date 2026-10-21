@@ -2,6 +2,9 @@
 
 import { useState, useTransition } from "react";
 
+import { termEnd } from "@/lib/date";
+import { OPEN_TERM_LABEL } from "@/lib/domain/appointment";
+
 import { Field } from "@/components/common/form-field";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -31,7 +34,7 @@ export type PersonOption = {
   positionIds: number[];
 };
 
-export type PositionOption = { id: number; name: string; category: string };
+export type PositionOption = { id: number; name: string; category: string; termYears: number | null };
 
 type Initial = {
   appointmentId: number;
@@ -39,7 +42,7 @@ type Initial = {
   person: OfficerInput["person"];
   positionId: number;
   startDate: string;
-  endDate: string;
+  endDate: string | null;
   retiredDate: string | null;
   isReappointment: boolean;
   note: string | null;
@@ -70,6 +73,8 @@ export function OfficerDialog({
   const [retiredDate, setRetiredDate] = useState(initial?.retiredDate ?? "");
   const [isReappointment, setIsReappointment] = useState(initial?.isReappointment ?? false);
   const [note, setNote] = useState(initial?.note ?? "");
+  // 종료일을 직접 고치면 자동 계산을 멈춤 (수정 시에는 처음부터 멈춤)
+  const [endTouched, setEndTouched] = useState(editing);
 
   function reset() {
     setMode(editing ? "existing" : "new");
@@ -81,6 +86,18 @@ export function OfficerDialog({
     setRetiredDate(initial?.retiredDate ?? "");
     setIsReappointment(initial?.isReappointment ?? false);
     setNote(initial?.note ?? "");
+    setEndTouched(editing);
+  }
+
+  /** 정관 제7조 기본 임기로 종료일 자동 계산 (이사장 3년, 이사·감사 2년, 연임 1년, 당연직은 비움) */
+  function autoEnd(next: { positionId?: number; startDate?: string; isReappointment?: boolean }) {
+    if (endTouched) return;
+    const pos = positions.find((p) => p.id === (next.positionId ?? positionId));
+    const start = next.startDate ?? startDate;
+    const re = next.isReappointment ?? isReappointment;
+    if (!pos || !start) return;
+    if (pos.termYears == null) setEndDate("");
+    else setEndDate(termEnd(start, re ? 1 : pos.termYears));
   }
 
   function choosePerson(id: number) {
@@ -88,15 +105,25 @@ export function OfficerDialog({
     setPersonId(p?.id);
     setPerson(p ? { name: p.name, education: p.education ?? "", career: p.career ?? "", note: p.note ?? "" } : empty);
     // 같은 직책을 이전에 맡았으면 연임으로 미리 체크
-    if (p && positionId) setIsReappointment(p.positionIds.includes(positionId));
+    if (p && positionId) {
+      const re = p.positionIds.includes(positionId);
+      setIsReappointment(re);
+      autoEnd({ isReappointment: re });
+    }
   }
 
   function choosePosition(id: number) {
     setPositionId(id);
+    let re = isReappointment;
     if (!editing && mode === "existing" && personId) {
-      setIsReappointment(!!persons.find((x) => x.id === personId)?.positionIds.includes(id));
+      re = !!persons.find((x) => x.id === personId)?.positionIds.includes(id);
+      setIsReappointment(re);
     }
+    autoEnd({ positionId: id, isReappointment: re });
   }
+
+  const pos = positions.find((p) => p.id === positionId);
+  const openTerm = pos?.termYears == null && !!pos;
 
   function submit() {
     startTransition(async () => {
@@ -198,21 +225,58 @@ export function OfficerDialog({
                 </optgroup>
               </NativeSelect>
             </Field>
-            <Field label="연임 여부">
+            <Field
+              label="연임 여부"
+              hint={
+                isReappointment
+                  ? pos?.name === "이사장"
+                    ? "연임은 1년 단위입니다. 이사장 연임 시 기관장계약을 다시 체결해야 합니다."
+                    : "연임은 1년 단위입니다 (임원추천위원회 추천 없음)."
+                  : undefined
+              }
+            >
               <label className="flex h-9 cursor-pointer items-center gap-2 text-sm">
-                <Checkbox checked={isReappointment} onCheckedChange={(v) => setIsReappointment(v === true)} />
+                <Checkbox
+                  checked={isReappointment}
+                  onCheckedChange={(v) => {
+                    setIsReappointment(v === true);
+                    autoEnd({ isReappointment: v === true });
+                  }}
+                />
                 연임
               </label>
             </Field>
             <Field label="임기 시작일" required>
-              <Input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} />
+              <Input
+                type="date"
+                value={startDate}
+                onChange={(e) => {
+                  setStartDate(e.target.value);
+                  autoEnd({ startDate: e.target.value });
+                }}
+              />
             </Field>
-            <Field label="임기 종료일(예정)" required>
-              <Input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} />
+            <Field
+              label="임기 종료일(예정)"
+              required={!openTerm}
+              hint={
+                openTerm
+                  ? `${pos?.name}는 임기가 ${OPEN_TERM_LABEL}이므로 비워 둡니다.`
+                  : "시작일·직책을 고르면 자동 계산됩니다 (이사장 3년, 이사·감사 2년, 연임 1년). 직접 고칠 수 있습니다."
+              }
+            >
+              <Input
+                type="date"
+                value={endDate}
+                onChange={(e) => {
+                  setEndDate(e.target.value);
+                  setEndTouched(true);
+                }}
+              />
             </Field>
             <Field
               label="실제 퇴임일"
-              hint="퇴임한 경우에만 입력. 비워 두면 임기 종료일이 지나도 '재임중(임기만료·직무수행)'으로 봅니다."
+              hint="퇴임한 경우에만 입력. 비워 두면 임기 종료일이 지나도 후임자 임명 시까지 '직무수행'으로 봅니다."
             >
               <Input type="date" value={retiredDate} onChange={(e) => setRetiredDate(e.target.value)} />
             </Field>

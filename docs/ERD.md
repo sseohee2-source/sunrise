@@ -6,7 +6,8 @@
 
 | 항목 | 결정 | 반영 |
 |---|---|---|
-| 임기 만료 후 후임 미선임 | 임기는 그대로 두고, 실제 퇴임일이 비어 있으면 '재임중(임기만료·직무수행)' | `Appointment.retiredDate` 공란 기준으로 상태 계산 |
+| 임기 만료 후 후임 미선임 | 임기는 그대로 두고, 실제 퇴임일이 비어 있으면 '직무수행' (정관 제7조③) | `Appointment.retiredDate` 공란 기준으로 상태 계산 |
+| 임기 기준 (정관 제7조) | 이사장 3년, 이사·감사 2년, 연임은 1년 단위, 당연직이사는 해당 직책 재임기간 | `Position.termYears` 추가(당연직은 비움), `Appointment.endDate` 선택 입력으로 변경. 등록 시 종료일 자동 계산, 기준과 다르면 경고 |
 | 안건 번호 | 구분별 별도 채번: 심의 제1호…, 보고 제1호… | `Agenda.type` + `Agenda.agendaNo` (표시: "심의 제1호") |
 | 이해관계 안건 의결제외 | 보수기준에 한정하지 않고 모든 안건에서, 이해관계 이사를 의결제외로 추가하고 사유를 적으면 해당 안건 재적인원에서 빠짐 | `Agenda.isCompensation`, `Agenda.compensationScope`, `Position.compensationRole` 삭제. `AgendaRecusal`(이사 + 사유)로만 관리 |
 | 정액급여 | 일할계산 (설정에서 끌 수 있음) | `AppSetting allowance.proRata = true` 기본값 |
@@ -63,6 +64,7 @@ erDiagram
         string category "STANDING 상임 / NON_STANDING 비상임"
         string name "직책명"
         int quota "정원"
+        int termYears "기본 임기(년), 비우면 해당 직책 재임기간"
         bool countsAsMember "재적이사 포함"
         bool allowanceEligible "수당 지급 대상"
         int sortOrder "표시 순서"
@@ -80,7 +82,7 @@ erDiagram
         int personId FK
         int positionId FK
         string startDate "임기 시작일"
-        string endDate "임기 종료일(예정)"
+        string endDate "임기 종료일(예정), 당연직은 비움"
         string retiredDate "실제 퇴임일(중도퇴임)"
         bool isReappointment "연임 여부"
         string note
@@ -248,7 +250,8 @@ erDiagram
 
 | 항목 | 계산 |
 |---|---|
-| 재임 상태 | 시작일 ≤ 기준일, 실제 퇴임일이 없거나 기준일 ≤ 퇴임일이면 재임. 퇴임일 없이 임기 종료일이 지났으면 '재임중(임기만료·직무수행)' |
+| 재임 상태 | 시작일 ≤ 기준일, 실제 퇴임일이 없거나 기준일 ≤ 퇴임일이면 재임. 퇴임일 없이 임기 종료일이 지났으면 '직무수행' |
+| 임기 종료일 자동 계산 | 시작일 + 기본 임기(연임이면 1년) − 1일 |
 | 회차 재적이사 | 개최일에 재임 중이고 직책의 `countsAsMember = true`인 재임 (회차 등록 시 Attendance로 자동 생성) |
 | 회차 출석률 | `Attendance(isMember, PRESENT)` ÷ `Attendance(isMember)` |
 | 안건 재적인원 | 회차 재적 − 해당 안건 의결제외 인원 |
