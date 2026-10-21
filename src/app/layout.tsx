@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 
 import { Sidebar } from "@/components/layout/sidebar";
+import { Toaster } from "@/components/ui/sonner";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -19,6 +20,7 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
           <Sidebar />
           <main className="min-w-0 flex-1 px-8 py-6">{children}</main>
         </div>
+        <Toaster />
       </body>
     </html>
   );

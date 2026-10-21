@@ -50,6 +50,8 @@ export type SheetSpec<T = Record<string, unknown>> = {
   totalLabel?: string;
   /** 인쇄 방향 */
   landscape?: boolean;
+  /** 행 강조 (warning 노랑, danger 빨강) */
+  highlight?: (row: T) => "warning" | "danger" | null | undefined;
 };
 
 export type SummarySpec = {
@@ -60,6 +62,10 @@ export type SummarySpec = {
 };
 
 const HEADER_FILL: ExcelJS.Fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFD9E1F2" } };
+const HIGHLIGHT_FILL: Record<"warning" | "danger", ExcelJS.Fill> = {
+  warning: { type: "pattern", pattern: "solid", fgColor: { argb: "FFFFF2CC" } },
+  danger: { type: "pattern", pattern: "solid", fgColor: { argb: "FFFCE4E4" } },
+};
 const TOTAL_FILL: ExcelJS.Fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFF2F2F2" } };
 const THIN: Partial<ExcelJS.Borders> = {
   top: { style: "thin" },
@@ -175,6 +181,7 @@ function addSheet<T>(wb: ExcelJS.Workbook, spec: SheetSpec<T>, used: Set<string>
   spec.rows.forEach((row, ri) => {
     const rowNo = firstData + ri;
     let maxLines = 1;
+    const hl = spec.highlight?.(row);
     cols.forEach((c, ci) => {
       const type = c.type ?? "text";
       const raw = c.value ? c.value(row) : (row as Record<string, unknown>)[c.key];
@@ -183,6 +190,7 @@ function addSheet<T>(wb: ExcelJS.Workbook, spec: SheetSpec<T>, used: Set<string>
       cell.value = v;
       cell.font = { name: FONT };
       cell.border = THIN;
+      if (hl) cell.fill = HIGHLIGHT_FILL[hl];
       if (NUM_FMT[type]) cell.numFmt = NUM_FMT[type]!;
       if (type === "multiline") {
         cell.alignment = { wrapText: true, vertical: "top" };
