@@ -23,7 +23,9 @@ export function MoneyInput({
         }}
         className={`pr-8 text-right tabular-nums ${className ?? ""}`}
       />
-      <span className="text-muted-foreground pointer-events-none absolute top-1/2 right-3 -translate-y-1/2 text-sm">원</span>
+      <span className="text-muted-foreground pointer-events-none absolute top-1/2 right-3 -translate-y-1/2 text-sm">
+        원
+      </span>
     </div>
   );
 }

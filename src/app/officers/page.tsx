@@ -44,7 +44,10 @@ function RosterTable({ entries, on }: { entries: RosterEntry[]; on: string }) {
           return lines.map(({ a }, i) => (
             <TableRow
               key={`${e.position.id}-${a?.id ?? `v${i}`}`}
-              className={cn(a?.expiringSoon || a?.status === "EXPIRED_SERVING" ? "bg-warning/40 hover:bg-warning/50" : "", !a && "bg-red-50/60")}
+              className={cn(
+                a?.expiringSoon || a?.status === "EXPIRED_SERVING" ? "bg-warning/40 hover:bg-warning/50" : "",
+                !a && "bg-red-50/60",
+              )}
             >
               {i === 0 && (
                 <>
@@ -54,20 +57,26 @@ function RosterTable({ entries, on }: { entries: RosterEntry[]; on: string }) {
                   </TableCell>
                   <TableCell rowSpan={lines.length} className="border-r text-center align-top tabular-nums">
                     {e.position.quota}/{e.serving.length}
-                    {e.overQuota && <Badge variant="destructive" className="mt-1">정원 초과</Badge>}
+                    {e.overQuota && (
+                      <Badge variant="destructive" className="mt-1">
+                        정원 초과
+                      </Badge>
+                    )}
                   </TableCell>
                 </>
               )}
               {a ? (
                 <>
                   <TableCell className="font-medium">{a.person.name}</TableCell>
-                  <TableCell className="whitespace-nowrap tabular-nums">
-                    {termRange(a)}
-                  </TableCell>
+                  <TableCell className="whitespace-nowrap tabular-nums">{termRange(a)}</TableCell>
                   <TableCell className="whitespace-nowrap tabular-nums">{remaining(a.endDate, on)}</TableCell>
                   <TableCell>
                     <ApptStatusBadge status={a.status} expiringSoon={a.expiringSoon} />
-                    {a.isReappointment && <Badge variant="outline" className="ml-1">연임</Badge>}
+                    {a.isReappointment && (
+                      <Badge variant="outline" className="ml-1">
+                        연임
+                      </Badge>
+                    )}
                   </TableCell>
                 </>
               ) : (
@@ -123,7 +132,9 @@ export default async function OfficersPage({ searchParams }: PageProps<"/officer
           <Card key={label} className="gap-1 py-3">
             <CardContent className="px-4">
               <div className="text-muted-foreground text-xs">{label}</div>
-              <div className={cn("text-2xl font-bold tabular-nums", label === "결원" && n > 0 && "text-red-600")}>{n}</div>
+              <div className={cn("text-2xl font-bold tabular-nums", label === "결원" && n > 0 && "text-red-600")}>
+                {n}
+              </div>
             </CardContent>
           </Card>
         ))}
@@ -134,7 +145,10 @@ export default async function OfficersPage({ searchParams }: PageProps<"/officer
           <AlertTriangle />
           <AlertDescription>
             {expiring
-              .map((a) => `${a.person.name}(${fmtDate(a.endDate)} ${a.status === "EXPIRED_SERVING" ? "임기만료, 후임자 임명 시까지 직무수행" : "만료 예정"})`)
+              .map(
+                (a) =>
+                  `${a.person.name}(${fmtDate(a.endDate)} ${a.status === "EXPIRED_SERVING" ? "임기만료, 후임자 임명 시까지 직무수행" : "만료 예정"})`,
+              )
               .join(", ")}
           </AlertDescription>
         </Alert>

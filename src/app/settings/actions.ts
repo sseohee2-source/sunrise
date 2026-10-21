@@ -47,7 +47,8 @@ export async function savePosition(input: PositionInput): Promise<ActionResult> 
   const name = input.name.trim();
   if (!name) return { ok: false, error: "직책명을 입력하세요." };
   if (!["STANDING", "NON_STANDING"].includes(input.category)) return { ok: false, error: "구분을 선택하세요." };
-  if (!Number.isInteger(input.quota) || input.quota < 0) return { ok: false, error: "정원은 0 이상의 정수로 입력하세요." };
+  if (!Number.isInteger(input.quota) || input.quota < 0)
+    return { ok: false, error: "정원은 0 이상의 정수로 입력하세요." };
   if (input.termYears != null && (!Number.isInteger(input.termYears) || input.termYears < 1)) {
     return { ok: false, error: "기본 임기는 1 이상의 정수(년)로 입력하거나 비워 두세요." };
   }
@@ -84,7 +85,11 @@ export async function savePosition(input: PositionInput): Promise<ActionResult> 
 
 export async function deletePosition(id: number): Promise<ActionResult> {
   const n = await prisma.appointment.count({ where: { positionId: id } });
-  if (n > 0) return { ok: false, error: `이 직책의 재임 기록이 ${n}건 있어 삭제할 수 없습니다. 더 이상 쓰지 않으면 '사용 안 함'으로 바꾸세요.` };
+  if (n > 0)
+    return {
+      ok: false,
+      error: `이 직책의 재임 기록이 ${n}건 있어 삭제할 수 없습니다. 더 이상 쓰지 않으면 '사용 안 함'으로 바꾸세요.`,
+    };
   await prisma.position.delete({ where: { id } });
   return done();
 }
@@ -148,7 +153,10 @@ export async function deleteSimple(kind: SimpleKind, id: number): Promise<Action
       (await prisma.committeeMeeting.count({ where: { committeeId: id } }));
   }
   if (used > 0) {
-    return { ok: false, error: `사용 중인 기록이 ${used}건 있어 삭제할 수 없습니다. 더 이상 쓰지 않으면 '사용 안 함'으로 바꾸세요.` };
+    return {
+      ok: false,
+      error: `사용 중인 기록이 ${used}건 있어 삭제할 수 없습니다. 더 이상 쓰지 않으면 '사용 안 함'으로 바꾸세요.`,
+    };
   }
   await model(kind).delete({ where: { id } });
   return done();
@@ -187,9 +195,11 @@ const RATE_FIELDS = {
 export async function saveRate(input: RateInput): Promise<ActionResult> {
   if (!isDate(input.effectiveFrom)) return { ok: false, error: "적용 시작일을 입력하세요." };
   for (const k of ["monthlyFixed", "faceFee", "writtenFee", "annualLimit", "warningMargin"] as const) {
-    if (!Number.isInteger(input[k]) || input[k] < 0) return { ok: false, error: `${RATE_FIELDS[k]}은(는) 0 이상의 금액(원)으로 입력하세요.` };
+    if (!Number.isInteger(input[k]) || input[k] < 0)
+      return { ok: false, error: `${RATE_FIELDS[k]}은(는) 0 이상의 금액(원)으로 입력하세요.` };
   }
-  if (input.warningMargin >= input.annualLimit) return { ok: false, error: "한도 경고 여유분은 연간 한도보다 작아야 합니다." };
+  if (input.warningMargin >= input.annualLimit)
+    return { ok: false, error: "한도 경고 여유분은 연간 한도보다 작아야 합니다." };
   const dup = await prisma.allowanceRate.findFirst({
     where: { effectiveFrom: input.effectiveFrom, id: input.id ? { not: input.id } : undefined },
   });
@@ -208,16 +218,27 @@ export async function saveRate(input: RateInput): Promise<ActionResult> {
     const before = await prisma.allowanceRate.findUniqueOrThrow({ where: { id: input.id } });
     await prisma.allowanceRate.update({ where: { id: input.id }, data });
     const money = (v: unknown) => `${fmtMoney(Number(v))}원`;
-    await logUpdate(prisma, "AllowanceRate", input.id, `수당 기준(${input.effectiveFrom}~)`, before, data, RATE_FIELDS, {
-      monthlyFixed: money,
-      faceFee: money,
-      writtenFee: money,
-      annualLimit: money,
-      warningMargin: money,
-    });
+    await logUpdate(
+      prisma,
+      "AllowanceRate",
+      input.id,
+      `수당 기준(${input.effectiveFrom}~)`,
+      before,
+      data,
+      RATE_FIELDS,
+      {
+        monthlyFixed: money,
+        faceFee: money,
+        writtenFee: money,
+        annualLimit: money,
+        warningMargin: money,
+      },
+    );
     const used = await prisma.allowancePayment.count({ where: { rateId: input.id } });
     if (used > 0) {
-      warnings.push(`이 기준으로 이미 만든 지급 내역 ${used}건의 금액은 바뀌지 않습니다. 기준 금액이 바뀐 것이라면 수정 대신 새 적용일로 추가 등록하세요.`);
+      warnings.push(
+        `이 기준으로 이미 만든 지급 내역 ${used}건의 금액은 바뀌지 않습니다. 기준 금액이 바뀐 것이라면 수정 대신 새 적용일로 추가 등록하세요.`,
+      );
     }
   } else {
     const created = await prisma.allowanceRate.create({ data });

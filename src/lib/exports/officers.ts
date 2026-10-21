@@ -3,7 +3,14 @@ import { POSITION_CATEGORY, label } from "@/lib/codes";
 import { fmtDate, fmtTerm } from "@/lib/date";
 import { APPT_STATUS_LABEL } from "@/lib/domain/appointment";
 import type { SheetSpec } from "@/lib/excel";
-import { getHistory, rosterRows, type HistoryFilter, type RosterEntry } from "@/lib/queries/officers";
+import {
+  getHistory,
+  printRows,
+  rosterRows,
+  type HistoryFilter,
+  type PrintRow,
+  type RosterEntry,
+} from "@/lib/queries/officers";
 import { prisma } from "@/lib/db";
 
 type RosterRowX = ReturnType<typeof rosterRows>[number];
@@ -14,7 +21,9 @@ export function rosterSheet(roster: RosterEntry[], on: string): SheetSpec<Roster
   return {
     name: "임원현황",
     title: `임원 현황(${fmtDate(on)} 기준)`,
-    notes: ["노란색: 임기 만료 3개월 이내 또는 직무수행(임기만료 후 후임자 임명 시까지) / 붉은색: 결원 / 임기 종료가 빈 칸: 해당 직책 재임기간(당연직)"],
+    notes: [
+      "노란색: 임기 만료 3개월 이내 또는 직무수행(임기만료 후 후임자 임명 시까지) / 붉은색: 결원 / 임기 종료가 빈 칸: 해당 직책 재임기간(당연직)",
+    ],
     columns: [
       { header: "구분", key: "category", value: (r) => label(POSITION_CATEGORY, r.category) },
       { header: "직책", key: "positionName" },
@@ -33,23 +42,25 @@ export function rosterSheet(roster: RosterEntry[], on: string): SheetSpec<Roster
     ],
     rows: rosterRows(roster).map((r) => ({ ...r, quota: quotaByName.get(r.positionName) ?? 0 })),
     landscape: true,
-    highlight: (r) => (!r.appt ? "danger" : r.appt.expiringSoon || r.appt.status === "EXPIRED_SERVING" ? "warning" : null),
+    highlight: (r) =>
+      !r.appt ? "danger" : r.appt.expiringSoon || r.appt.status === "EXPIRED_SERVING" ? "warning" : null,
   };
 }
 
-/** 임원명단 출력용 (직책/성명/임기/학력/주요경력) */
-export function rosterPrintSheet(roster: RosterEntry[], on: string, includeVacancies: boolean): SheetSpec<RosterRowX> {
+/** 임원명단 출력용 (직책/성명/임기/학력/주요경력, 상임이사·비상임이사 구분 줄 포함) */
+export function rosterPrintSheet(roster: RosterEntry[], on: string, includeVacancies: boolean): SheetSpec<PrintRow> {
   return {
     name: "임원명단",
     title: `임원 현황(${fmtDate(on)} 기준)`,
     columns: [
-      { header: "직책", key: "positionName", width: 16 },
-      { header: "성명", key: "name", width: 10, value: (r) => r.appt?.person.name ?? "결원" },
+      { header: "직책", key: "positionName", width: 16, value: (r) => (r.section ? null : r.positionName) },
+      { header: "성명", key: "name", width: 10, value: (r) => (r.section ? null : (r.appt?.person.name ?? "결원")) },
       { header: "임기", key: "term", width: 20, type: "multiline", value: (r) => (r.appt ? termText(r.appt) : "") },
       { header: "학력", key: "edu", width: 34, type: "multiline", value: (r) => r.appt?.person.education },
       { header: "주요경력", key: "career", width: 40, type: "multiline", value: (r) => r.appt?.person.career },
     ],
-    rows: rosterRows(roster, includeVacancies),
+    rows: printRows(roster, includeVacancies),
+    section: (r) => r.section,
   };
 }
 
@@ -72,7 +83,8 @@ export async function historySheet(filter: HistoryFilter, on: string) {
     conds.push(`직책: ${p?.name ?? "-"}`);
   }
   if (filter.q) conds.push(`성명: ${filter.q}`);
-  if (filter.from || filter.to) conds.push(`재임기간: ${fmtDate(filter.from) || "처음"} ~ ${fmtDate(filter.to) || "현재"}`);
+  if (filter.from || filter.to)
+    conds.push(`재임기간: ${fmtDate(filter.from) || "처음"} ~ ${fmtDate(filter.to) || "현재"}`);
   if (filter.status) conds.push(`상태: ${filter.status === "serving" ? "재임중" : "퇴임"}`);
   const sheet: SheetSpec<(typeof rows)[number]> = {
     name: "역대임원",

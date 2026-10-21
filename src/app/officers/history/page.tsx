@@ -76,7 +76,9 @@ export default async function OfficerHistoryPage({ searchParams }: PageProps<"/o
               <NativeSelect name="position" defaultValue={filter.positionId ?? ""} className="w-40">
                 <option value="">전체</option>
                 {positions.map((p) => (
-                  <option key={p.id} value={p.id}>{p.name}</option>
+                  <option key={p.id} value={p.id}>
+                    {p.name}
+                  </option>
                 ))}
               </NativeSelect>
             </label>
@@ -136,11 +138,13 @@ export default async function OfficerHistoryPage({ searchParams }: PageProps<"/o
                 <TableCell className="align-top">{a.position.name}</TableCell>
                 <TableCell className="align-top font-medium">
                   {a.person.name}
-                  {a.isReappointment && <Badge variant="outline" className="ml-1">연임</Badge>}
+                  {a.isReappointment && (
+                    <Badge variant="outline" className="ml-1">
+                      연임
+                    </Badge>
+                  )}
                 </TableCell>
-                <TableCell className="align-top tabular-nums">
-                  {termRange(a)}
-                </TableCell>
+                <TableCell className="align-top tabular-nums">{termRange(a)}</TableCell>
                 <TableCell className="align-top tabular-nums">{fmtDate(a.retiredDate)}</TableCell>
                 <TableCell className="align-top">
                   <ApptStatusBadge status={a.status} />

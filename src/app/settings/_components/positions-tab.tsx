@@ -57,7 +57,12 @@ function PositionDialog({ initial, trigger }: { initial?: PositionRow; trigger: 
             <Input value={v.name} onChange={(e) => setV({ ...v, name: e.target.value })} />
           </Field>
           <Field label="정원" required>
-            <Input type="number" min={0} value={v.quota} onChange={(e) => setV({ ...v, quota: Number(e.target.value) })} />
+            <Input
+              type="number"
+              min={0}
+              value={v.quota}
+              onChange={(e) => setV({ ...v, quota: Number(e.target.value) })}
+            />
           </Field>
           <Field label="기본 임기(년)" hint="비워 두면 '해당 직책 재임기간' (당연직이사)">
             <Input
@@ -74,10 +79,14 @@ function PositionDialog({ initial, trigger }: { initial?: PositionRow; trigger: 
         <div className="grid gap-2 text-sm">
           <label className="flex cursor-pointer items-center gap-2">
             <Checkbox checked={v.countsAsMember} onCheckedChange={(c) => setV({ ...v, countsAsMember: c === true })} />
-            재적이사 포함 <span className="text-muted-foreground text-xs">(해제 시 출석률·재적인원 계산에서 제외. 예: 감사)</span>
+            재적이사 포함{" "}
+            <span className="text-muted-foreground text-xs">(해제 시 출석률·재적인원 계산에서 제외. 예: 감사)</span>
           </label>
           <label className="flex cursor-pointer items-center gap-2">
-            <Checkbox checked={v.allowanceEligible} onCheckedChange={(c) => setV({ ...v, allowanceEligible: c === true })} />
+            <Checkbox
+              checked={v.allowanceEligible}
+              onCheckedChange={(c) => setV({ ...v, allowanceEligible: c === true })}
+            />
             비상임이사 수당 지급 대상
           </label>
           <label className="flex cursor-pointer items-center gap-2">
@@ -86,10 +95,16 @@ function PositionDialog({ initial, trigger }: { initial?: PositionRow; trigger: 
           </label>
         </div>
         <DialogFooter>
-          <Button variant="outline" onClick={() => setOpen(false)}>취소</Button>
+          <Button variant="outline" onClick={() => setOpen(false)}>
+            취소
+          </Button>
           <Button
             disabled={pending}
-            onClick={() => start(async () => { if (notifyResult(await savePosition({ ...v, id: initial?.id }))) setOpen(false); })}
+            onClick={() =>
+              start(async () => {
+                if (notifyResult(await savePosition({ ...v, id: initial?.id }))) setOpen(false);
+              })
+            }
           >
             저장
           </Button>
@@ -108,9 +123,17 @@ export function PositionsTab({ positions }: { positions: PositionRow[] }) {
         <p className="text-muted-foreground text-sm">
           이 순서가 모든 목록과 출력물의 직책 순서가 됩니다. 화살표로 순서를 바꿀 수 있습니다.
           <br />
-          기본 임기는 임원 등록 시 종료일 자동 계산에 쓰입니다 (정관 제7조: 이사장 3년, 이사·감사 2년, 연임 1년 단위, 당연직은 재임기간).
+          기본 임기는 임원 등록 시 종료일 자동 계산에 쓰입니다 (정관 제7조: 이사장 3년, 이사·감사 2년, 연임 1년 단위,
+          당연직은 재임기간).
         </p>
-        <PositionDialog trigger={<Button size="sm"><Plus />직책 추가</Button>} />
+        <PositionDialog
+          trigger={
+            <Button size="sm">
+              <Plus />
+              직책 추가
+            </Button>
+          }
+        />
       </div>
       <Table>
         <TableHeader>
@@ -138,20 +161,37 @@ export function PositionsTab({ positions }: { positions: PositionRow[] }) {
               </TableCell>
               <TableCell className="text-center tabular-nums">{p.quota}</TableCell>
               <TableCell className="text-center tabular-nums">
-                {p.termYears != null ? `${p.termYears}년` : <span className="text-muted-foreground text-xs">재임기간</span>}
+                {p.termYears != null ? (
+                  `${p.termYears}년`
+                ) : (
+                  <span className="text-muted-foreground text-xs">재임기간</span>
+                )}
               </TableCell>
               <TableCell className="text-center">{p.countsAsMember ? O : X}</TableCell>
               <TableCell className="text-center">{p.allowanceEligible ? O : X}</TableCell>
               <TableCell className="text-muted-foreground text-xs">{p.note}</TableCell>
               <TableCell>
                 <div className="flex justify-end">
-                  <PositionDialog initial={p} trigger={<Button size="icon" variant="ghost" title="수정"><Pencil /></Button>} />
+                  <PositionDialog
+                    initial={p}
+                    trigger={
+                      <Button size="icon" variant="ghost" title="수정">
+                        <Pencil />
+                      </Button>
+                    }
+                  />
                   <ConfirmButton
                     title="직책 삭제"
                     description={`'${p.name}' 직책을 삭제합니다. 재임 기록이 있는 직책은 삭제되지 않습니다.`}
                     action={() => deletePosition(p.id)}
                     trigger={
-                      <Button size="icon" variant="ghost" className="text-destructive" title="삭제" disabled={p._count.appointments > 0}>
+                      <Button
+                        size="icon"
+                        variant="ghost"
+                        className="text-destructive"
+                        title="삭제"
+                        disabled={p._count.appointments > 0}
+                      >
                         <Trash2 />
                       </Button>
                     }

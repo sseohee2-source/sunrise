@@ -167,7 +167,15 @@ export function OfficerDialog({
           {!editing && (
             <div className="flex gap-4 text-sm">
               <label className="flex cursor-pointer items-center gap-1.5">
-                <input type="radio" checked={mode === "new"} onChange={() => { setMode("new"); setPersonId(undefined); setPerson(empty); }} />
+                <input
+                  type="radio"
+                  checked={mode === "new"}
+                  onChange={() => {
+                    setMode("new");
+                    setPersonId(undefined);
+                    setPerson(empty);
+                  }}
+                />
                 신임
               </label>
               <label className="flex cursor-pointer items-center gap-1.5">
@@ -196,14 +204,24 @@ export function OfficerDialog({
               <Input value={person.note} onChange={(e) => setPerson({ ...person, note: e.target.value })} />
             </Field>
             <Field label="학력" hint="한 줄에 하나씩 입력">
-              <Textarea rows={3} value={person.education} onChange={(e) => setPerson({ ...person, education: e.target.value })} />
+              <Textarea
+                rows={3}
+                value={person.education}
+                onChange={(e) => setPerson({ ...person, education: e.target.value })}
+              />
             </Field>
             <Field label="주요경력" hint="한 줄에 하나씩 입력">
-              <Textarea rows={3} value={person.career} onChange={(e) => setPerson({ ...person, career: e.target.value })} />
+              <Textarea
+                rows={3}
+                value={person.career}
+                onChange={(e) => setPerson({ ...person, career: e.target.value })}
+              />
             </Field>
           </div>
           {mode === "existing" && personId && (
-            <p className="text-muted-foreground text-xs">※ 인적사항(성명·학력·경력)을 고치면 이 사람의 모든 재임 기록에 반영됩니다.</p>
+            <p className="text-muted-foreground text-xs">
+              ※ 인적사항(성명·학력·경력)을 고치면 이 사람의 모든 재임 기록에 반영됩니다.
+            </p>
           )}
         </section>
 
@@ -215,12 +233,16 @@ export function OfficerDialog({
                 <option value="">선택하세요</option>
                 <optgroup label="상임">
                   {standing.map((p) => (
-                    <option key={p.id} value={p.id}>{p.name}</option>
+                    <option key={p.id} value={p.id}>
+                      {p.name}
+                    </option>
                   ))}
                 </optgroup>
                 <optgroup label="비상임">
                   {nonStanding.map((p) => (
-                    <option key={p.id} value={p.id}>{p.name}</option>
+                    <option key={p.id} value={p.id}>
+                      {p.name}
+                    </option>
                   ))}
                 </optgroup>
               </NativeSelect>

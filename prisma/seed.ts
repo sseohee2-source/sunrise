@@ -25,7 +25,7 @@ function rand() {
   t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
   return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
 }
-const pick = <T,>(arr: readonly T[]): T => arr[Math.floor(rand() * arr.length)];
+const pick = <T>(arr: readonly T[]): T => arr[Math.floor(rand() * arr.length)];
 const chance = (p: number) => rand() < p;
 
 // ───────────── 마스터 ─────────────
@@ -46,11 +46,24 @@ const POSITIONS = [
 ] as const;
 
 const DEPARTMENTS = [
-  "기획조정실", "경영지원실", "기업금융처", "글로벌사업처", "인재육성처",
-  "지역혁신처", "디지털전략처", "감사실", "ESG경영팀", "안전관리팀",
+  "기획조정실",
+  "경영지원실",
+  "기업금융처",
+  "글로벌사업처",
+  "인재육성처",
+  "지역혁신처",
+  "디지털전략처",
+  "감사실",
+  "ESG경영팀",
+  "안전관리팀",
 ];
 
-const REGIONS: [string, boolean][] = [["진주", true], ["서울", false], ["부산", false], ["대전", false]];
+const REGIONS: [string, boolean][] = [
+  ["진주", true],
+  ["서울", false],
+  ["부산", false],
+  ["대전", false],
+];
 
 // ───────────── 인물·재임 ─────────────
 type P = { name: string; edu: string; career: string };
@@ -89,27 +102,63 @@ const APPTS: ApptSeed[] = [
   { person: "김정훈", position: "이사장", start: "2023-03-02", end: "2026-03-01", retired: "2026-03-01" },
   { person: "박상민", position: "이사장", start: "2026-03-02", end: "2029-03-01" },
   { person: "이도윤", position: "부이사장", start: "2023-07-01", end: "2025-06-30", retired: "2025-06-30" },
-  { person: "이도윤", position: "부이사장", start: "2025-07-01", end: "2026-06-30", retired: "2026-06-30", re: true, note: "1년 연임" },
+  {
+    person: "이도윤",
+    position: "부이사장",
+    start: "2025-07-01",
+    end: "2026-06-30",
+    retired: "2026-06-30",
+    re: true,
+    note: "1년 연임",
+  },
   { person: "이도윤", position: "부이사장", start: "2026-07-01", end: "2027-06-30", re: true, note: "1년 연임(2회)" },
   { person: "최수진", position: "기획관리이사", start: "2024-01-15", end: "2026-01-14", retired: "2026-01-14" },
   { person: "정해원", position: "기획관리이사", start: "2026-01-15", end: "2028-01-14" },
   { person: "윤재석", position: "기업금융이사", start: "2022-09-01", end: "2024-08-31", retired: "2024-08-31" },
-  { person: "강민호", position: "기업금융이사", start: "2024-09-01", end: "2026-08-31", note: "후임 임명 시까지 직무수행" },
+  {
+    person: "강민호",
+    position: "기업금융이사",
+    start: "2024-09-01",
+    end: "2026-08-31",
+    note: "후임 임명 시까지 직무수행",
+  },
   { person: "송하늘", position: "글로벌성장이사", start: "2022-04-01", end: "2024-03-31", retired: "2024-03-31" },
   { person: "한지민", position: "글로벌성장이사", start: "2024-04-01", end: "2026-03-31", retired: "2026-03-31" },
   { person: "서진우", position: "글로벌성장이사", start: "2026-04-01", end: "2028-03-31" },
   { person: "임채원", position: "인력성장이사", start: "2023-05-15", end: "2025-05-14", retired: "2025-05-14" },
   { person: "조은비", position: "인력성장이사", start: "2025-05-15", end: "2027-05-14" },
   { person: "문성호", position: "지역혁신이사", start: "2023-06-01", end: "2025-05-31", retired: "2025-05-31" },
-  { person: "문성호", position: "지역혁신이사", start: "2025-06-01", end: "2026-05-31", retired: "2026-06-30", re: true, note: "1년 연임, 임기만료 후 직무수행하다 퇴임" },
+  {
+    person: "문성호",
+    position: "지역혁신이사",
+    start: "2025-06-01",
+    end: "2026-05-31",
+    retired: "2026-06-30",
+    re: true,
+    note: "1년 연임, 임기만료 후 직무수행하다 퇴임",
+  },
   { person: "오정민", position: "감사", start: "2023-01-02", end: "2025-01-01", retired: "2025-01-01" },
   { person: "배경수", position: "감사", start: "2025-01-02", end: "2027-01-01" },
   // 비상임
   { person: "남궁현", position: "선임비상임이사", start: "2023-04-01", end: "2025-03-31", retired: "2025-03-31" },
   { person: "유지혜", position: "비상임이사", start: "2023-04-01", end: "2025-03-31", retired: "2025-03-31" },
-  { person: "유지혜", position: "선임비상임이사", start: "2025-04-01", end: "2027-03-31", note: "비상임이사에서 선임비상임이사로 선임" },
+  {
+    person: "유지혜",
+    position: "선임비상임이사",
+    start: "2025-04-01",
+    end: "2027-03-31",
+    note: "비상임이사에서 선임비상임이사로 선임",
+  },
   { person: "황보석", position: "비상임이사", start: "2023-04-01", end: "2025-03-31", retired: "2025-03-31" },
-  { person: "황보석", position: "비상임이사", start: "2025-04-01", end: "2026-03-31", retired: "2026-03-31", re: true, note: "1년 연임" },
+  {
+    person: "황보석",
+    position: "비상임이사",
+    start: "2025-04-01",
+    end: "2026-03-31",
+    retired: "2026-03-31",
+    re: true,
+    note: "1년 연임",
+  },
   { person: "황보석", position: "비상임이사", start: "2026-04-01", end: "2027-03-31", re: true, note: "1년 연임(2회)" },
   { person: "서윤아", position: "비상임이사", start: "2022-02-01", end: "2024-01-31", retired: "2024-01-31" },
   { person: "신미경", position: "비상임이사", start: "2024-02-01", end: "2026-01-31", retired: "2026-01-31" },
@@ -119,34 +168,80 @@ const APPTS: ApptSeed[] = [
   { person: "류하은", position: "비상임이사", start: "2023-09-01", end: "2025-08-31", retired: "2025-08-31" },
   { person: "차민석", position: "비상임이사", start: "2025-09-01", end: "2027-08-31" },
   { person: "마동준", position: "비상임이사", start: "2022-06-01", end: "2024-05-31", retired: "2024-05-31" },
-  { person: "권도영", position: "비상임이사", start: "2024-06-01", end: "2026-05-31", retired: "2025-11-30", note: "중도 퇴임" },
+  {
+    person: "권도영",
+    position: "비상임이사",
+    start: "2024-06-01",
+    end: "2026-05-31",
+    retired: "2025-11-30",
+    note: "중도 퇴임",
+  },
   { person: "노서연", position: "비상임이사", start: "2026-01-10", end: "2028-01-09" },
   { person: "양준혁", position: "비상임이사", start: "2025-04-01", end: "2027-03-31" },
   { person: "김노을", position: "노동이사", start: "2023-10-01", end: "2025-09-30", retired: "2025-09-30" },
   { person: "이한결", position: "노동이사", start: "2025-10-01", end: "2027-09-30" },
-  { person: "장민재", position: "당연직이사", start: "2024-01-01", end: null, retired: "2025-08-15", note: "소속 부처 인사이동" },
+  {
+    person: "장민재",
+    position: "당연직이사",
+    start: "2024-01-01",
+    end: null,
+    retired: "2025-08-15",
+    note: "소속 부처 인사이동",
+  },
   { person: "홍성빈", position: "당연직이사", start: "2025-08-16", end: null },
 ];
 
 // ───────────── 이사회 ─────────────
-type MeetingSeed = { date: string; method: "FACE" | "WRITTEN" | "OTHER"; region?: string; detail?: string; other?: string; request?: boolean };
-const M = (date: string, method: MeetingSeed["method"] = "FACE", region = "진주", detail = "본사 대회의실"): MeetingSeed =>
-  method === "WRITTEN" ? { date, method } : { date, method, region, detail };
+type MeetingSeed = {
+  date: string;
+  method: "FACE" | "WRITTEN" | "OTHER";
+  region?: string;
+  detail?: string;
+  other?: string;
+  request?: boolean;
+};
+const M = (
+  date: string,
+  method: MeetingSeed["method"] = "FACE",
+  region = "진주",
+  detail = "본사 대회의실",
+): MeetingSeed => (method === "WRITTEN" ? { date, method } : { date, method, region, detail });
 
 const MEETINGS: MeetingSeed[] = [
   // 2024
-  M("2024-01-26"), M("2024-02-27", "WRITTEN"), M("2024-03-28"), M("2024-04-25", "FACE", "서울", "서울지역본부 회의실"),
-  M("2024-05-30"), M("2024-06-27"), M("2024-07-25", "WRITTEN"), M("2024-09-26"),
-  M("2024-10-31", "FACE", "서울", "○○빌딩 컨퍼런스룸"), M("2024-12-19"),
+  M("2024-01-26"),
+  M("2024-02-27", "WRITTEN"),
+  M("2024-03-28"),
+  M("2024-04-25", "FACE", "서울", "서울지역본부 회의실"),
+  M("2024-05-30"),
+  M("2024-06-27"),
+  M("2024-07-25", "WRITTEN"),
+  M("2024-09-26"),
+  M("2024-10-31", "FACE", "서울", "○○빌딩 컨퍼런스룸"),
+  M("2024-12-19"),
   // 2025
-  M("2025-01-23"), M("2025-02-26", "WRITTEN"), M("2025-03-27"), M("2025-04-24"),
+  M("2025-01-23"),
+  M("2025-02-26", "WRITTEN"),
+  M("2025-03-27"),
+  M("2025-04-24"),
   { date: "2025-05-29", method: "OTHER", other: "화상회의", region: "진주", detail: "본사 영상회의실" },
-  M("2025-06-26", "FACE", "부산", "부산지역본부 회의실"), M("2025-07-24", "WRITTEN"),
-  { ...M("2025-08-28"), request: true }, M("2025-09-25"), M("2025-10-30", "FACE", "서울", "서울지역본부 회의실"), M("2025-12-18"),
+  M("2025-06-26", "FACE", "부산", "부산지역본부 회의실"),
+  M("2025-07-24", "WRITTEN"),
+  { ...M("2025-08-28"), request: true },
+  M("2025-09-25"),
+  M("2025-10-30", "FACE", "서울", "서울지역본부 회의실"),
+  M("2025-12-18"),
   // 2026
-  M("2026-01-29"), M("2026-02-25", "WRITTEN"), M("2026-03-26"), M("2026-04-29"),
-  M("2026-05-28", "FACE", "대전", "대전 ○○컨벤션센터"), M("2026-06-25"), M("2026-07-23", "WRITTEN"), M("2026-09-24"),
-  M("2026-11-26"), M("2026-12-17"),
+  M("2026-01-29"),
+  M("2026-02-25", "WRITTEN"),
+  M("2026-03-26"),
+  M("2026-04-29"),
+  M("2026-05-28", "FACE", "대전", "대전 ○○컨벤션센터"),
+  M("2026-06-25"),
+  M("2026-07-23", "WRITTEN"),
+  M("2026-09-24"),
+  M("2026-11-26"),
+  M("2026-12-17"),
 ];
 
 const AGENDA_POOL: { title: string; dept: string; kw: string; type: "DELIBERATION" | "REPORT" }[] = [
@@ -191,7 +286,16 @@ const REMARK_POOL = [
   ["내부감사 지적사항의 재발 방지 대책이 실효성 있게 운영되는지 점검 필요", "감사,내부통제"],
 ];
 
-const STAFF = ["김지현 차장", "이준호 과장", "박소연 대리", "최민규 차장", "정다은 과장", "한승우 대리", "오혜린 차장", "윤태경 과장"];
+const STAFF = [
+  "김지현 차장",
+  "이준호 과장",
+  "박소연 대리",
+  "최민규 차장",
+  "정다은 과장",
+  "한승우 대리",
+  "오혜린 차장",
+  "윤태경 과장",
+];
 
 async function main() {
   console.log("기존 데이터 삭제…");
@@ -219,7 +323,10 @@ async function main() {
   ]);
 
   // 마스터
-  const positions = new Map<string, { id: number; countsAsMember: boolean; allowanceEligible: boolean; category: string }>();
+  const positions = new Map<
+    string,
+    { id: number; countsAsMember: boolean; allowanceEligible: boolean; category: string }
+  >();
   for (const [i, [category, name, quota, countsAsMember, allowanceEligible, termYears]] of POSITIONS.entries()) {
     const p = await prisma.position.create({
       data: { category, name, quota, countsAsMember, allowanceEligible, termYears, sortOrder: (i + 1) * 10 },
@@ -239,10 +346,26 @@ async function main() {
     committees.set(name, (await prisma.committee.create({ data: { name, sortOrder: (i + 1) * 10 } })).id);
   }
   await prisma.allowanceRate.create({
-    data: { effectiveFrom: "2021-01-01", monthlyFixed: 1_800_000, faceFee: 300_000, writtenFee: 100_000, annualLimit: 30_000_000, warningMargin: 0, note: "(샘플) 이전 기준" },
+    data: {
+      effectiveFrom: "2021-01-01",
+      monthlyFixed: 1_800_000,
+      faceFee: 300_000,
+      writtenFee: 100_000,
+      annualLimit: 30_000_000,
+      warningMargin: 0,
+      note: "(샘플) 이전 기준",
+    },
   });
   await prisma.allowanceRate.create({
-    data: { effectiveFrom: "2024-01-01", monthlyFixed: 2_000_000, faceFee: 400_000, writtenFee: 150_000, annualLimit: 30_000_000, warningMargin: 0, note: "현행 기준" },
+    data: {
+      effectiveFrom: "2024-01-01",
+      monthlyFixed: 2_000_000,
+      faceFee: 400_000,
+      writtenFee: 150_000,
+      annualLimit: 30_000_000,
+      warningMargin: 0,
+      note: "현행 기준",
+    },
   });
   const rates = await prisma.allowanceRate.findMany();
   await prisma.appSetting.create({ data: { key: "allowance.proRata", value: "true" } });
@@ -256,7 +379,10 @@ async function main() {
     career: APPTS.find((a) => a.person === name)!.position === "노동이사" ? CAREER[7] : CAREER[i % 7],
   }));
   for (const p of people) {
-    personIds.set(p.name, (await prisma.person.create({ data: { name: p.name, education: p.edu, career: p.career } })).id);
+    personIds.set(
+      p.name,
+      (await prisma.person.create({ data: { name: p.name, education: p.edu, career: p.career } })).id,
+    );
   }
   for (const a of APPTS) {
     await prisma.appointment.create({
@@ -320,12 +446,17 @@ async function main() {
     // 1/3 요구 소집: 비상임이사 6명 요구 (재적 16명의 1/3 이상)
     if (ms.request) {
       const req = members.filter((a) => a.position.category === "NON_STANDING").slice(0, 6);
-      for (const a of req) await prisma.convocationRequester.create({ data: { meetingId: meeting.id, appointmentId: a.id } });
+      for (const a of req)
+        await prisma.convocationRequester.create({ data: { meetingId: meeting.id, appointmentId: a.id } });
     }
 
     // 안건
     const q = Math.min(4, Math.max(1, Math.ceil(Number(ms.date.slice(5, 7)) / 3) - 1)) || 4;
-    const fill = (t: string) => t.replace("{y}", String(year + 1)).replace("{p}", String(year - 1)).replace("{q}", String(q));
+    const fill = (t: string) =>
+      t
+        .replace("{y}", String(year + 1))
+        .replace("{p}", String(year - 1))
+        .replace("{q}", String(q));
     const nDelib = ms.method === "WRITTEN" ? 1 + Math.floor(rand() * 2) : 2 + Math.floor(rand() * 3);
     const nReport = ms.method === "WRITTEN" ? Math.floor(rand() * 2) : 1 + Math.floor(rand() * 2);
     const delibPool = AGENDA_POOL.filter((a) => a.type === "DELIBERATION");
@@ -406,7 +537,13 @@ async function main() {
         else {
           const r = rand();
           result = r < 0.8 ? "ORIGINAL" : r < 0.94 ? "AMENDED" : r < 0.98 ? "DEFERRED" : "REJECTED";
-          if (result === "AMENDED") amendment = pick(["시행일을 다음 달 1일로 조정", "지원 대상 범위에 소상공인 포함", "부칙에 경과규정 신설", "집행 한도를 10% 감액"]);
+          if (result === "AMENDED")
+            amendment = pick([
+              "시행일을 다음 달 1일로 조정",
+              "지원 대상 범위에 소상공인 포함",
+              "부칙에 경과규정 신설",
+              "집행 한도를 10% 감액",
+            ]);
         }
       }
       const ag = await prisma.agenda.create({
@@ -435,7 +572,14 @@ async function main() {
         const sp = pick(speakers);
         const [content, kw] = pick(REMARK_POOL);
         const ageDays = (Date.parse(TODAY) - Date.parse(ms.date)) / 86400_000;
-        const status = ageDays > 240 ? (chance(0.9) ? "DONE" : "NA") : ageDays > 90 ? pick(["DONE", "IN_PROGRESS", "DONE"]) : pick(["NEEDED", "IN_PROGRESS"]);
+        const status =
+          ageDays > 240
+            ? chance(0.9)
+              ? "DONE"
+              : "NA"
+            : ageDays > 90
+              ? pick(["DONE", "IN_PROGRESS", "DONE"])
+              : pick(["NEEDED", "IN_PROGRESS"]);
         const dept = pick(DEPARTMENTS);
         await prisma.remark.create({
           data: {
@@ -446,7 +590,12 @@ async function main() {
             keywords: kw,
             actionDepartmentId: status === "NA" ? null : depts.get(dept)!,
             actionPlan: status === "NA" ? null : "관련 현황 분석 후 개선방안 마련, 차기 이사회 보고",
-            actionResult: status === "DONE" ? "개선방안 수립 및 이사회 보고 완료" : status === "IN_PROGRESS" ? "현황 분석 진행 중" : null,
+            actionResult:
+              status === "DONE"
+                ? "개선방안 수립 및 이사회 보고 완료"
+                : status === "IN_PROGRESS"
+                  ? "현황 분석 진행 중"
+                  : null,
             actionStatus: status,
             actionDoneDate: status === "DONE" ? addDays(ms.date, 30 + Math.floor(rand() * 60)) : null,
           },
@@ -515,10 +664,18 @@ async function main() {
   }
   // 임원추천위원회 수당 (확인분만 입력)
   const rec: [string, string, "FACE" | "WRITTEN"][] = [
-    ["유지혜", "2025-03-10", "FACE"], ["유지혜", "2025-03-24", "FACE"], ["황보석", "2025-03-10", "FACE"],
-    ["양준혁", "2025-12-08", "WRITTEN"], ["유지혜", "2026-01-05", "FACE"], ["유지혜", "2026-01-19", "FACE"],
-    ["황보석", "2026-01-05", "FACE"], ["황보석", "2026-01-19", "FACE"], ["황보석", "2026-03-03", "FACE"],
-    ["황보석", "2026-03-17", "FACE"], ["황보석", "2026-07-06", "FACE"], ["황보석", "2026-07-20", "WRITTEN"],
+    ["유지혜", "2025-03-10", "FACE"],
+    ["유지혜", "2025-03-24", "FACE"],
+    ["황보석", "2025-03-10", "FACE"],
+    ["양준혁", "2025-12-08", "WRITTEN"],
+    ["유지혜", "2026-01-05", "FACE"],
+    ["유지혜", "2026-01-19", "FACE"],
+    ["황보석", "2026-01-05", "FACE"],
+    ["황보석", "2026-01-19", "FACE"],
+    ["황보석", "2026-03-03", "FACE"],
+    ["황보석", "2026-03-17", "FACE"],
+    ["황보석", "2026-07-06", "FACE"],
+    ["황보석", "2026-07-20", "WRITTEN"],
     ["전상우", "2026-07-06", "FACE"],
   ];
   for (const [name, date, method] of rec) {
@@ -581,7 +738,13 @@ async function main() {
     const cid = committees.get(cname)!;
     const date = addDays(mt.date, -(1 + Math.floor(rand() * 5)));
     const cm = await prisma.committeeMeeting.create({
-      data: { committeeId: cid, meetingId: mt.id, date, regionId: regions.get("진주")!, locationDetail: "본사 소회의실" },
+      data: {
+        committeeId: cid,
+        meetingId: mt.id,
+        date,
+        regionId: regions.get("진주")!,
+        locationDetail: "본사 소회의실",
+      },
     });
     for (const [k, ag] of mt.agendas.slice(0, 1 + Math.floor(rand() * 2)).entries()) {
       await prisma.committeeAgenda.create({
@@ -598,10 +761,17 @@ async function main() {
       });
     }
     const done = date < TODAY;
-    for (const a of assignments.filter((x) => x.committeeId === cid && x.startDate <= date && (!x.endDate || date <= x.endDate))) {
+    for (const a of assignments.filter(
+      (x) => x.committeeId === cid && x.startDate <= date && (!x.endDate || date <= x.endDate),
+    )) {
       const absent = done && chance(0.1);
       await prisma.committeeAttendance.create({
-        data: { committeeMeetingId: cm.id, personId: a.personId, status: absent ? "ABSENT" : "PRESENT", absenceReason: absent ? "개인 일정" : null },
+        data: {
+          committeeMeetingId: cm.id,
+          personId: a.personId,
+          status: absent ? "ABSENT" : "PRESENT",
+          absenceReason: absent ? "개인 일정" : null,
+        },
       });
     }
   }

@@ -50,6 +50,8 @@ export type SheetSpec<T = Record<string, unknown>> = {
   totalLabel?: string;
   /** 인쇄 방향 */
   landscape?: boolean;
+  /** 구분 줄: 문자열을 돌려주면 그 행은 표 폭 전체를 합친 구분 줄로 표시 (예: 【상임이사】) */
+  section?: (row: T) => string | null | undefined;
   /** 행 강조 (warning 노랑, danger 빨강) */
   highlight?: (row: T) => "warning" | "danger" | null | undefined;
 };
@@ -66,6 +68,7 @@ const HIGHLIGHT_FILL: Record<"warning" | "danger", ExcelJS.Fill> = {
   warning: { type: "pattern", pattern: "solid", fgColor: { argb: "FFFFF2CC" } },
   danger: { type: "pattern", pattern: "solid", fgColor: { argb: "FFFCE4E4" } },
 };
+const SECTION_FILL: ExcelJS.Fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFEDEDED" } };
 const TOTAL_FILL: ExcelJS.Fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFF2F2F2" } };
 const THIN: Partial<ExcelJS.Borders> = {
   top: { style: "thin" },
@@ -180,6 +183,17 @@ function addSheet<T>(wb: ExcelJS.Workbook, spec: SheetSpec<T>, used: Set<string>
   const firstData = headerRow + 1;
   spec.rows.forEach((row, ri) => {
     const rowNo = firstData + ri;
+    const sectionLabel = spec.section?.(row);
+    if (sectionLabel) {
+      ws.mergeCells(rowNo, 1, rowNo, nCols);
+      const cell = ws.getCell(rowNo, 1);
+      cell.value = sectionLabel;
+      cell.font = { name: FONT, bold: true };
+      cell.fill = SECTION_FILL;
+      cell.alignment = { vertical: "middle" };
+      for (let c = 1; c <= nCols; c++) ws.getCell(rowNo, c).border = THIN;
+      return;
+    }
     let maxLines = 1;
     const hl = spec.highlight?.(row);
     cols.forEach((c, ci) => {
@@ -263,7 +277,12 @@ function addSheet<T>(wb: ExcelJS.Workbook, spec: SheetSpec<T>, used: Set<string>
   return ws;
 }
 
-function addSummarySheet(wb: ExcelJS.Workbook, summary: SummarySpec, sheets: { name: string; rows: unknown[] }[], used: Set<string>) {
+function addSummarySheet(
+  wb: ExcelJS.Workbook,
+  summary: SummarySpec,
+  sheets: { name: string; rows: unknown[] }[],
+  used: Set<string>,
+) {
   const ws = wb.addWorksheet(safeSheetName("요약", used));
   ws.getColumn(1).width = 22;
   ws.getColumn(2).width = 60;
@@ -324,9 +343,7 @@ export function buildWorkbook(sheets: SheetSpec<any>[], summary?: SummarySpec): 
  * (예: makeFilename("이사회안건", "2026") → 이사회안건_2026_20261021.xlsx)
  */
 export function makeFilename(item: string, ...conditions: (string | null | undefined)[]): string {
-  const parts = [item, ...conditions.filter((c): c is string => !!c)].map((p) =>
-    p.replace(/[\\/:*?"<>|\s]+/g, "-"),
-  );
+  const parts = [item, ...conditions.filter((c): c is string => !!c)].map((p) => p.replace(/[\\/:*?"<>|\s]+/g, "-"));
   return `${parts.join("_")}_${todayCompact()}.xlsx`;
 }
 

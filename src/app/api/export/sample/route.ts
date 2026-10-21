@@ -54,17 +54,32 @@ export async function GET() {
       { header: "개최 방법", key: "method" },
       { header: "재적인원", key: "members", type: "int", total: "sum" },
       { header: "출석인원", key: "present", type: "int", total: "sum" },
-      { header: "출석률", key: "rate", type: "percent", total: (c) => `IFERROR(${c.cell("present")}/${c.cell("members")},0)` },
+      {
+        header: "출석률",
+        key: "rate",
+        type: "percent",
+        total: (c) => `IFERROR(${c.cell("present")}/${c.cell("members")},0)`,
+      },
     ],
     rows: attendRows,
   };
 
   const payments = await prisma.allowancePayment.groupBy({ by: ["personId", "year", "kind"], _sum: { amount: true } });
   const persons = new Map((await prisma.person.findMany()).map((p) => [p.id, p.name]));
-  const byKey = new Map<string, { name: string; year: number; FIXED: number; BOARD: number; RECOMMEND: number; OTHER: number }>();
+  const byKey = new Map<
+    string,
+    { name: string; year: number; FIXED: number; BOARD: number; RECOMMEND: number; OTHER: number }
+  >();
   for (const p of payments) {
     const k = `${p.personId}-${p.year}`;
-    const row = byKey.get(k) ?? { name: persons.get(p.personId)!, year: p.year, FIXED: 0, BOARD: 0, RECOMMEND: 0, OTHER: 0 };
+    const row = byKey.get(k) ?? {
+      name: persons.get(p.personId)!,
+      year: p.year,
+      FIXED: 0,
+      BOARD: 0,
+      RECOMMEND: 0,
+      OTHER: 0,
+    };
     row[p.kind as "FIXED"] += p._sum.amount ?? 0;
     byKey.set(k, row);
   }
@@ -88,7 +103,12 @@ export async function GET() {
         total: "sum",
       },
       { header: "연간 한도", key: "limit", type: "money", value: () => 30_000_000 },
-      { header: "소진율", key: "ratio", type: "percent", value: (r) => (r.FIXED + r.BOARD + r.RECOMMEND + r.OTHER) / 30_000_000 },
+      {
+        header: "소진율",
+        key: "ratio",
+        type: "percent",
+        value: (r) => (r.FIXED + r.BOARD + r.RECOMMEND + r.OTHER) / 30_000_000,
+      },
     ],
     rows: limitRows,
   };

@@ -50,7 +50,8 @@ export async function saveOfficer(input: OfficerInput): Promise<ActionResult> {
   if (endDate && endDate < input.startDate) return { ok: false, error: "임기 종료일이 시작일보다 빠릅니다." };
   const retiredDate = nn(input.retiredDate);
   if (retiredDate && !isDate(retiredDate)) return { ok: false, error: "실제 퇴임일 형식이 올바르지 않습니다." };
-  if (retiredDate && retiredDate < input.startDate) return { ok: false, error: "실제 퇴임일이 임기 시작일보다 빠릅니다." };
+  if (retiredDate && retiredDate < input.startDate)
+    return { ok: false, error: "실제 퇴임일이 임기 시작일보다 빠릅니다." };
 
   const personData = {
     name,
@@ -89,7 +90,14 @@ export async function saveOfficer(input: OfficerInput): Promise<ActionResult> {
       await logUpdate(tx, "Appointment", input.appointmentId, label, before, apptData, APPT_FIELDS);
     } else {
       const created = await tx.appointment.create({ data: { ...apptData, personId } });
-      await logEvent(tx, "Appointment", created.id, label, "CREATE", `${fmtDate(apptData.startDate)}~${fmtDate(apptData.endDate)}`);
+      await logEvent(
+        tx,
+        "Appointment",
+        created.id,
+        label,
+        "CREATE",
+        `${fmtDate(apptData.startDate)}~${fmtDate(apptData.endDate)}`,
+      );
     }
   });
 
@@ -106,8 +114,13 @@ export async function saveOfficer(input: OfficerInput): Promise<ActionResult> {
     }
   }
   // 정원 초과 기간
-  const appts = await prisma.appointment.findMany({ where: { positionId: input.positionId }, include: { person: true } });
-  warnings.push(...findQuotaViolations(appts, position.quota).map((v) => describeViolation(position.name, position.quota, v)));
+  const appts = await prisma.appointment.findMany({
+    where: { positionId: input.positionId },
+    include: { person: true },
+  });
+  warnings.push(
+    ...findQuotaViolations(appts, position.quota).map((v) => describeViolation(position.name, position.quota, v)),
+  );
 
   revalidateOfficers();
   return { ok: true, warnings };
@@ -133,12 +146,27 @@ export async function deleteAppointment(id: number): Promise<ActionResult> {
   }
   await prisma.$transaction(async (tx) => {
     await tx.appointment.delete({ where: { id } });
-    await logEvent(tx, "Appointment", id, `${a.person.name} / ${a.position.name}`, "DELETE", `${fmtDate(a.startDate)}~${fmtDate(a.endDate)}`);
+    await logEvent(
+      tx,
+      "Appointment",
+      id,
+      `${a.person.name} / ${a.position.name}`,
+      "DELETE",
+      `${fmtDate(a.startDate)}~${fmtDate(a.endDate)}`,
+    );
     // 다른 기록이 전혀 없는 인물은 함께 정리
     const p = await tx.person.findUnique({
       where: { id: a.personId },
       include: {
-        _count: { select: { appointments: true, remarks: true, payments: true, committeeAssignments: true, committeeAttendances: true } },
+        _count: {
+          select: {
+            appointments: true,
+            remarks: true,
+            payments: true,
+            committeeAssignments: true,
+            committeeAttendances: true,
+          },
+        },
       },
     });
     if (p && Object.values(p._count).every((n) => n === 0)) await tx.person.delete({ where: { id: p.id } });

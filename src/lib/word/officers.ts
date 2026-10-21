@@ -18,7 +18,7 @@ import {
 
 import { fmtDate } from "@/lib/date";
 import { termText } from "@/lib/exports/officers";
-import { rosterRows, type RosterEntry } from "@/lib/queries/officers";
+import { printRows, type RosterEntry } from "@/lib/queries/officers";
 
 const FONT = "맑은 고딕";
 const SIZE = 18; // 9pt (half-points)
@@ -41,7 +41,11 @@ function cellParagraphs(text: string | null | undefined, opts: { bold?: boolean;
   );
 }
 
-function cell(text: string | null | undefined, width: number, opts: { bold?: boolean; center?: boolean; header?: boolean } = {}) {
+function cell(
+  text: string | null | undefined,
+  width: number,
+  opts: { bold?: boolean; center?: boolean; header?: boolean } = {},
+) {
   return new TableCell({
     width: { size: width, type: WidthType.DXA },
     borders: BORDERS,
@@ -57,18 +61,43 @@ export async function buildRosterDocx(roster: RosterEntry[], on: string, include
     tableHeader: true, // 다음 쪽에도 머리글 반복
     children: HEADERS.map((h, i) => cell(h, COL_WIDTHS[i], { bold: true, center: true, header: true })),
   });
-  const body = rosterRows(roster, includeVacancies).map(
-    (r) =>
-      new TableRow({
-        cantSplit: true,
-        children: [
-          cell(r.positionName, COL_WIDTHS[0], { center: true }),
-          cell(r.appt?.person.name ?? "결원", COL_WIDTHS[1], { center: true }),
-          cell(r.appt ? termText(r.appt) : "", COL_WIDTHS[2], { center: true }),
-          cell(r.appt?.person.education, COL_WIDTHS[3]),
-          cell(r.appt?.person.career, COL_WIDTHS[4]),
-        ],
-      }),
+  const body = printRows(roster, includeVacancies).map((r) =>
+    r.section
+      ? // 구분 줄: 표 폭 전체를 합친 한 칸
+        new TableRow({
+          cantSplit: true,
+          children: [
+            new TableCell({
+              columnSpan: COL_WIDTHS.length,
+              width: {
+                size: COL_WIDTHS.reduce((a, b) => a + b, 0),
+                type: WidthType.DXA,
+              },
+              borders: BORDERS,
+              margins: { top: 40, bottom: 40, left: 80, right: 80 },
+              shading: {
+                type: ShadingType.CLEAR,
+                color: "auto",
+                fill: "EDEDED",
+              },
+              children: cellParagraphs(r.section, { bold: true }),
+            }),
+          ],
+        })
+      : new TableRow({
+          cantSplit: true,
+          children: [
+            cell(r.positionName, COL_WIDTHS[0], { center: true }),
+            cell(r.appt?.person.name ?? "결원", COL_WIDTHS[1], {
+              center: true,
+            }),
+            cell(r.appt ? termText(r.appt) : "", COL_WIDTHS[2], {
+              center: true,
+            }),
+            cell(r.appt?.person.education, COL_WIDTHS[3]),
+            cell(r.appt?.person.career, COL_WIDTHS[4]),
+          ],
+        }),
   );
 
   const doc = new Document({
@@ -79,7 +108,11 @@ export async function buildRosterDocx(roster: RosterEntry[], on: string, include
       {
         properties: {
           page: {
-            size: { width: 11906, height: 16838, orientation: PageOrientation.PORTRAIT }, // A4 세로
+            size: {
+              width: 11906,
+              height: 16838,
+              orientation: PageOrientation.PORTRAIT,
+            }, // A4 세로
             margin: { top: 1134, bottom: 1134, left: 850, right: 850 },
           },
         },
@@ -87,10 +120,20 @@ export async function buildRosterDocx(roster: RosterEntry[], on: string, include
           new Paragraph({
             alignment: AlignmentType.CENTER,
             spacing: { after: 240 },
-            children: [new TextRun({ text: `임원 현황(${fmtDate(on)} 기준)`, font: FONT, size: 32, bold: true })],
+            children: [
+              new TextRun({
+                text: `임원 현황(${fmtDate(on)} 기준)`,
+                font: FONT,
+                size: 32,
+                bold: true,
+              }),
+            ],
           }),
           new Table({
-            width: { size: COL_WIDTHS.reduce((a, b) => a + b, 0), type: WidthType.DXA },
+            width: {
+              size: COL_WIDTHS.reduce((a, b) => a + b, 0),
+              type: WidthType.DXA,
+            },
             columnWidths: COL_WIDTHS,
             layout: TableLayoutType.FIXED,
             rows: [header, ...body],

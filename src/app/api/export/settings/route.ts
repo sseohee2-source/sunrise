@@ -23,8 +23,17 @@ export async function GET() {
       name: "직책마스터",
       title: "직책 마스터",
       columns: [
-        { header: "순서", key: "no", type: "int", value: (r: (typeof d.positions)[number]) => d.positions.indexOf(r) + 1 },
-        { header: "구분", key: "category", value: (r: (typeof d.positions)[number]) => label(POSITION_CATEGORY, r.category) },
+        {
+          header: "순서",
+          key: "no",
+          type: "int",
+          value: (r: (typeof d.positions)[number]) => d.positions.indexOf(r) + 1,
+        },
+        {
+          header: "구분",
+          key: "category",
+          value: (r: (typeof d.positions)[number]) => label(POSITION_CATEGORY, r.category),
+        },
         { header: "직책", key: "name" },
         { header: "정원", key: "quota", type: "int", total: "sum" },
         {

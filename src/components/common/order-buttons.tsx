@@ -25,10 +25,24 @@ export function OrderButtons({
     });
   return (
     <div className="flex">
-      <Button size="icon" variant="ghost" className="size-7" disabled={first || pending} onClick={() => run(-1)} title="위로">
+      <Button
+        size="icon"
+        variant="ghost"
+        className="size-7"
+        disabled={first || pending}
+        onClick={() => run(-1)}
+        title="위로"
+      >
         <ChevronUp />
       </Button>
-      <Button size="icon" variant="ghost" className="size-7" disabled={last || pending} onClick={() => run(1)} title="아래로">
+      <Button
+        size="icon"
+        variant="ghost"
+        className="size-7"
+        disabled={last || pending}
+        onClick={() => run(1)}
+        title="아래로"
+      >
         <ChevronDown />
       </Button>
     </div>

@@ -47,10 +47,29 @@ export function rosterRows(roster: RosterEntry[], includeVacancies = true): Rost
   for (const r of roster) {
     for (const a of r.serving) rows.push({ category: r.position.category, positionName: r.position.name, appt: a });
     if (includeVacancies) {
-      for (let i = 0; i < r.vacancies; i++) rows.push({ category: r.position.category, positionName: r.position.name, appt: null });
+      for (let i = 0; i < r.vacancies; i++)
+        rows.push({ category: r.position.category, positionName: r.position.name, appt: null });
     }
   }
   return rows;
+}
+
+/** 명단 출력용 행: 상임이사/비상임이사 구분 줄 + 임원 행 */
+export type PrintRow =
+  | { section: string; appt?: undefined; positionName?: undefined; category?: undefined }
+  | (RosterRow & { section?: undefined });
+
+export const SECTION_LABEL: Record<string, string> = { STANDING: "【상임이사】", NON_STANDING: "【비상임이사】" };
+
+export function printRows(roster: RosterEntry[], includeVacancies = true): PrintRow[] {
+  const out: PrintRow[] = [];
+  let prev: string | null = null;
+  for (const r of rosterRows(roster, includeVacancies)) {
+    if (r.category !== prev) out.push({ section: SECTION_LABEL[r.category] ?? r.category });
+    prev = r.category;
+    out.push(r);
+  }
+  return out;
 }
 
 export type QuotaViolation = { from: string; to: string | null; count: number; names: string[] };
@@ -151,8 +170,12 @@ export async function getOfficerFormOptions() {
       career: p.career,
       note: p.note,
       summary:
-        p.appointments.map((a) => `${a.position.name} ${a.startDate.slice(2, 4)}~${(a.retiredDate ?? a.endDate ?? "    현재").slice(2, 4)}`).join(", ") ||
-        "재임 기록 없음",
+        p.appointments
+          .map(
+            (a) =>
+              `${a.position.name} ${a.startDate.slice(2, 4)}~${(a.retiredDate ?? a.endDate ?? "    현재").slice(2, 4)}`,
+          )
+          .join(", ") || "재임 기록 없음",
       positionIds: [...new Set(p.appointments.map((a) => a.positionId))],
     })),
   };

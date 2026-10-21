@@ -26,10 +26,20 @@ export default async function SettingsPage() {
                 positions: <PositionsTab positions={d.positions.map((p) => ({ ...p, note: p.note ?? "" }))} />,
                 rates: <RatesTab rates={d.rates} proRata={d.proRata} />,
                 committees: (
-                  <SimpleTab kind="committee" noun="소위원회" items={d.committees} description="소위원회 위원 배정·개최 화면에서 선택하는 목록입니다." />
+                  <SimpleTab
+                    kind="committee"
+                    noun="소위원회"
+                    items={d.committees}
+                    description="소위원회 위원 배정·개최 화면에서 선택하는 목록입니다."
+                  />
                 ),
                 departments: (
-                  <SimpleTab kind="department" noun="부서" items={d.departments} description="안건 담당부서, 발언 조치부서에서 선택하는 목록입니다." />
+                  <SimpleTab
+                    kind="department"
+                    noun="부서"
+                    items={d.departments}
+                    description="안건 담당부서, 발언 조치부서에서 선택하는 목록입니다."
+                  />
                 ),
                 regions: (
                   <SimpleTab

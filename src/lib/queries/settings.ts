@@ -8,8 +8,14 @@ export async function getProRata(): Promise<boolean> {
 
 export async function getSettingsData() {
   const [positions, rates, departments, regions, committees, proRata] = await Promise.all([
-    prisma.position.findMany({ orderBy: [{ sortOrder: "asc" }, { id: "asc" }], include: { _count: { select: { appointments: true } } } }),
-    prisma.allowanceRate.findMany({ orderBy: { effectiveFrom: "desc" }, include: { _count: { select: { payments: true } } } }),
+    prisma.position.findMany({
+      orderBy: [{ sortOrder: "asc" }, { id: "asc" }],
+      include: { _count: { select: { appointments: true } } },
+    }),
+    prisma.allowanceRate.findMany({
+      orderBy: { effectiveFrom: "desc" },
+      include: { _count: { select: { payments: true } } },
+    }),
     prisma.department.findMany({ orderBy: [{ sortOrder: "asc" }, { id: "asc" }] }),
     prisma.region.findMany({ orderBy: [{ sortOrder: "asc" }, { id: "asc" }] }),
     prisma.committee.findMany({ orderBy: [{ sortOrder: "asc" }, { id: "asc" }] }),

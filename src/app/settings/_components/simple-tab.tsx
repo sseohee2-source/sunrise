@@ -56,7 +56,10 @@ function ItemDialog({
           {headOffice && (
             <label className="flex cursor-pointer items-center gap-2">
               <Checkbox checked={!!v.isHeadOffice} onCheckedChange={(c) => setV({ ...v, isHeadOffice: c === true })} />
-              본사 지역 <span className="text-muted-foreground text-xs">(이 지역을 고르면 &lsquo;진주 본사 개최&rsquo;가 자동 체크됨)</span>
+              본사 지역{" "}
+              <span className="text-muted-foreground text-xs">
+                (이 지역을 고르면 &lsquo;진주 본사 개최&rsquo;가 자동 체크됨)
+              </span>
             </label>
           )}
           <label className="flex cursor-pointer items-center gap-2">
@@ -65,10 +68,16 @@ function ItemDialog({
           </label>
         </div>
         <DialogFooter>
-          <Button variant="outline" onClick={() => setOpen(false)}>취소</Button>
+          <Button variant="outline" onClick={() => setOpen(false)}>
+            취소
+          </Button>
           <Button
             disabled={pending}
-            onClick={() => start(async () => { if (notifyResult(await saveSimple(kind, { ...v, id: initial?.id }))) setOpen(false); })}
+            onClick={() =>
+              start(async () => {
+                if (notifyResult(await saveSimple(kind, { ...v, id: initial?.id }))) setOpen(false);
+              })
+            }
           >
             저장
           </Button>
@@ -96,7 +105,17 @@ export function SimpleTab({
     <div className="grid max-w-2xl gap-3">
       <div className="flex items-center justify-between gap-3">
         <p className="text-muted-foreground text-sm">{description}</p>
-        <ItemDialog kind={kind} noun={noun} headOffice={headOffice} trigger={<Button size="sm"><Plus />{noun} 추가</Button>} />
+        <ItemDialog
+          kind={kind}
+          noun={noun}
+          headOffice={headOffice}
+          trigger={
+            <Button size="sm">
+              <Plus />
+              {noun} 추가
+            </Button>
+          }
+        />
       </div>
       <Table>
         <TableHeader>
@@ -116,7 +135,9 @@ export function SimpleTab({
               <TableCell className="font-medium">
                 {it.name} {!it.isActive && <Badge variant="outline">사용 안 함</Badge>}
               </TableCell>
-              {headOffice && <TableCell className="text-center">{it.isHeadOffice ? <Badge>본사</Badge> : ""}</TableCell>}
+              {headOffice && (
+                <TableCell className="text-center">{it.isHeadOffice ? <Badge>본사</Badge> : ""}</TableCell>
+              )}
               <TableCell>
                 <div className="flex justify-end">
                   <ItemDialog
@@ -124,13 +145,21 @@ export function SimpleTab({
                     noun={noun}
                     headOffice={headOffice}
                     initial={it}
-                    trigger={<Button size="icon" variant="ghost" title="수정"><Pencil /></Button>}
+                    trigger={
+                      <Button size="icon" variant="ghost" title="수정">
+                        <Pencil />
+                      </Button>
+                    }
                   />
                   <ConfirmButton
                     title={`${noun} 삭제`}
                     description={`'${it.name}'을(를) 삭제합니다. 사용 중인 기록이 있으면 삭제되지 않습니다.`}
                     action={() => deleteSimple(kind, it.id)}
-                    trigger={<Button size="icon" variant="ghost" className="text-destructive" title="삭제"><Trash2 /></Button>}
+                    trigger={
+                      <Button size="icon" variant="ghost" className="text-destructive" title="삭제">
+                        <Trash2 />
+                      </Button>
+                    }
                   />
                 </div>
               </TableCell>
