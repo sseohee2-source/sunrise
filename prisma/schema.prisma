@@ -1,0 +1,349 @@
+// 이사회 실적관리 시스템 DB 스키마
+// - 날짜만 있는 값은 'YYYY-MM-DD' 문자열로 저장 (시간대 문제 방지, 문자열 비교로 기간 조회)
+// - 코드값은 영문 상수 문자열로 저장하고 화면에서 한글로 표시 (src/lib/codes.ts 참고)
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = "file:./dev.db" // prisma/dev.db 단일 파일 (백업 시 이 파일만 복사)
+}
+
+// ───────────── 설정(마스터) ─────────────
+
+/// 직책 마스터
+model Position {
+  id                Int           @id @default(autoincrement())
+  category          String // STANDING 상임 / NON_STANDING 비상임
+  name              String        @unique
+  quota             Int           @default(1) // 정원
+  countsAsMember    Boolean       @default(true) // 재적이사 포함
+  allowanceEligible Boolean       @default(false) // 수당 지급 대상
+  sortOrder         Int           @default(0)
+  isActive          Boolean       @default(true)
+  note              String?
+  appointments      Appointment[]
+}
+
+/// 부서 목록
+model Department {
+  id              Int               @id @default(autoincrement())
+  name            String            @unique
+  sortOrder       Int               @default(0)
+  isActive        Boolean           @default(true)
+  agendas         Agenda[]
+  remarks         Remark[]
+  committeeAgenda CommitteeAgenda[]
+}
+
+/// 개최 지역 (진주/서울 등). isHeadOffice=true 인 지역 선택 시 '진주 본사 개최' 자동 체크
+model Region {
+  id                Int                @id @default(autoincrement())
+  name              String             @unique
+  isHeadOffice      Boolean            @default(false)
+  sortOrder         Int                @default(0)
+  isActive          Boolean            @default(true)
+  meetings          Meeting[]
+  committeeMeetings CommitteeMeeting[]
+}
+
+/// 소위원회 종류
+model Committee {
+  id          Int                   @id @default(autoincrement())
+  name        String                @unique
+  sortOrder   Int                   @default(0)
+  isActive    Boolean               @default(true)
+  assignments CommitteeAssignment[]
+  meetings    CommitteeMeeting[]
+}
+
+/// 비상임이사 수당 기준 (적용 시작일 기준 이력)
+model AllowanceRate {
+  id            Int                @id @default(autoincrement())
+  effectiveFrom String             @unique // 적용 시작일
+  monthlyFixed  Int // 정액급여(월)
+  faceFee       Int // 대면 회의수당
+  writtenFee    Int // 서면 회의수당
+  annualLimit   Int // 1인당 연간 한도
+  warningMargin Int                @default(0) // 한도 경고 여유분
+  note          String?
+  payments      AllowancePayment[]
+}
+
+/// 기타 설정값 (예: allowance.proRata = "true" 정액급여 일할계산)
+model AppSetting {
+  key   String @id
+  value String
+}
+
+// ───────────── 임원 ─────────────
+
+/// 인물
+model Person {
+  id                   Int                   @id @default(autoincrement())
+  name                 String
+  education            String? // 학력(여러 줄)
+  career               String? // 주요경력(여러 줄)
+  note                 String?
+  createdAt            DateTime              @default(now())
+  updatedAt            DateTime              @updatedAt
+  appointments         Appointment[]
+  remarks              Remark[]
+  payments             AllowancePayment[]
+  committeeAssignments CommitteeAssignment[]
+  committeeAttendances CommitteeAttendance[]
+}
+
+/// 재임 (실제 퇴임일이 비어 있고 임기 종료일이 지났으면 '재임중(임기만료·직무수행)')
+model Appointment {
+  id              Int                    @id @default(autoincrement())
+  personId        Int
+  positionId      Int
+  startDate       String // 임기 시작일
+  endDate         String // 임기 종료일(예정)
+  retiredDate     String? // 실제 퇴임일
+  isReappointment Boolean                @default(false) // 연임 여부
+  note            String?
+  createdAt       DateTime               @default(now())
+  updatedAt       DateTime               @updatedAt
+  person          Person                 @relation(fields: [personId], references: [id], onDelete: Cascade)
+  position        Position               @relation(fields: [positionId], references: [id])
+  attendances     Attendance[]
+  recusals        AgendaRecusal[]
+  convocations    ConvocationRequester[]
+
+  @@index([personId])
+  @@index([positionId])
+}
+
+// ───────────── 이사회 ─────────────
+
+/// 이사회 회차
+model Meeting {
+  id                Int                    @id @default(autoincrement())
+  year              Int
+  sessionNo         Int // 회차 (연도별 자동채번, 수정 가능)
+  date              String // 개최일
+  method            String // FACE 대면 / WRITTEN 서면 / OTHER 기타
+  methodOther       String? // 기타 직접입력
+  regionId          Int? // 개최 지역
+  locationDetail    String? // 상세 위치 (본사, ○○백화점 등)
+  isHeadOffice      Boolean                @default(false) // 진주 본사 개최
+  convocation       String                 @default("CHAIR") // CHAIR 의장 소집 / MEMBER_REQUEST 재적이사 1/3 이상 요구
+  status            String                 @default("PLANNED") // PLANNED 예정 / DONE 완료
+  note              String?
+  createdAt         DateTime               @default(now())
+  updatedAt         DateTime               @updatedAt
+  region            Region?                @relation(fields: [regionId], references: [id])
+  agendas           Agenda[]
+  attendances       Attendance[]
+  requesters        ConvocationRequester[]
+  remarks           Remark[]
+  payments          AllowancePayment[]
+  committeeMeetings CommitteeMeeting[]
+
+  @@index([year, sessionNo])
+  @@index([date])
+}
+
+/// 재적이사 1/3 이상 요구 소집 시 요구한 이사
+model ConvocationRequester {
+  id            Int         @id @default(autoincrement())
+  meetingId     Int
+  appointmentId Int
+  meeting       Meeting     @relation(fields: [meetingId], references: [id], onDelete: Cascade)
+  appointment   Appointment @relation(fields: [appointmentId], references: [id], onDelete: Cascade)
+
+  @@unique([meetingId, appointmentId])
+}
+
+/// 안건 (번호는 구분별로 '심의 제1호', '보고 제1호')
+model Agenda {
+  id               Int               @id @default(autoincrement())
+  meetingId        Int
+  type             String // DELIBERATION 심의 / REPORT 보고
+  agendaNo         Int // 구분 내 번호
+  title            String
+  departmentId     Int?
+  presenter        String? // 발표자
+  contact          String? // 담당자
+  result           String? // ORIGINAL 원안의결 / AMENDED 수정의결 / REJECTED 부결 / DEFERRED 보류 / REPORTED 보고완료
+  amendment        String? // 수정 내용
+  description      String?
+  keywords         String? // 키워드(쉼표 구분)
+  isCompensation   Boolean           @default(false) // 임원 보수기준 관련 안건
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
+  meeting          Meeting           @relation(fields: [meetingId], references: [id], onDelete: Cascade)
+  department       Department?       @relation(fields: [departmentId], references: [id])
+  recusals         AgendaRecusal[]
+  remarks          Remark[]
+  committeeAgendas CommitteeAgenda[]
+
+  @@index([meetingId])
+}
+
+/// 회차별 출석 (회차 등록 시 개최일 기준 재임자로 자동 생성)
+model Attendance {
+  id            Int         @id @default(autoincrement())
+  meetingId     Int
+  appointmentId Int
+  isMember      Boolean     @default(true) // 재적이사 여부 스냅샷 (감사=false, 출석률 계산 제외)
+  status        String      @default("PRESENT") // PRESENT 출석(서면: 의결서 제출) / ABSENT 불참
+  absenceReason String?
+  note          String?
+  updatedAt     DateTime    @updatedAt
+  meeting       Meeting     @relation(fields: [meetingId], references: [id], onDelete: Cascade)
+  appointment   Appointment @relation(fields: [appointmentId], references: [id], onDelete: Cascade)
+
+  @@unique([meetingId, appointmentId])
+}
+
+/// 안건별 의결제외 (해당 안건의 재적인원에서 제외)
+model AgendaRecusal {
+  id            Int         @id @default(autoincrement())
+  agendaId      Int
+  appointmentId Int
+  reason        String?
+  agenda        Agenda      @relation(fields: [agendaId], references: [id], onDelete: Cascade)
+  appointment   Appointment @relation(fields: [appointmentId], references: [id], onDelete: Cascade)
+
+  @@unique([agendaId, appointmentId])
+}
+
+/// 이사 발언
+model Remark {
+  id                 Int         @id @default(autoincrement())
+  meetingId          Int
+  agendaId           Int?
+  personId           Int
+  content            String
+  keywords           String?
+  actionDepartmentId Int?
+  actionPlan         String?
+  actionResult       String?
+  actionStatus       String      @default("NEEDED") // NEEDED 조치 필요 / IN_PROGRESS 진행 중 / DONE 조치 완료 / NA 해당 없음
+  actionDoneDate     String?
+  createdAt          DateTime    @default(now())
+  updatedAt          DateTime    @updatedAt
+  meeting            Meeting     @relation(fields: [meetingId], references: [id], onDelete: Cascade)
+  agenda             Agenda?     @relation(fields: [agendaId], references: [id], onDelete: SetNull)
+  person             Person      @relation(fields: [personId], references: [id])
+  actionDepartment   Department? @relation(fields: [actionDepartmentId], references: [id])
+
+  @@index([personId])
+  @@index([meetingId])
+}
+
+// ───────────── 수당 ─────────────
+
+/// 수당 지급 내역 (이사회 회의수당·정액급여는 자동 생성, 임원추천위원회 수당은 확인분만 수기 입력)
+model AllowancePayment {
+  id             Int            @id @default(autoincrement())
+  personId       Int
+  year           Int // 귀속 연도
+  kind           String // FIXED 정액급여 / BOARD 이사회 회의수당 / RECOMMEND 임원추천위원회 회의수당 / OTHER 기타
+  meetingId      Int? // 이사회 회의수당의 근거 회차
+  month          Int? // 정액급여 대상 월
+  recMeetingDate String? // 임원추천위원회 회의일자
+  recMethod      String? // 임원추천위원회 FACE / WRITTEN
+  rateId         Int? // 적용한 수당 기준
+  amount         Int
+  calcNote       String? // 산정 근거 (예: 일할 15/31일)
+  status         String         @default("PLANNED") // PLANNED 지급예정 / PAID 지급완료
+  paidDate       String?
+  isAuto         Boolean        @default(false) // 자동 생성 여부
+  memo           String? // 메모 (임원추천위원회: 확인 경로)
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+  person         Person         @relation(fields: [personId], references: [id])
+  meeting        Meeting?       @relation(fields: [meetingId], references: [id], onDelete: SetNull)
+  rate           AllowanceRate? @relation(fields: [rateId], references: [id])
+
+  @@index([personId, year])
+  @@index([meetingId])
+}
+
+// ───────────── 소위원회 ─────────────
+
+/// 소위원회 위원 배정 이력
+model CommitteeAssignment {
+  id          Int       @id @default(autoincrement())
+  committeeId Int
+  personId    Int
+  startDate   String
+  endDate     String? // 비어 있으면 현재 배정 중
+  note        String?
+  committee   Committee @relation(fields: [committeeId], references: [id], onDelete: Cascade)
+  person      Person    @relation(fields: [personId], references: [id], onDelete: Cascade)
+
+  @@index([committeeId])
+  @@index([personId])
+}
+
+/// 소위원회 개최 (이사회 회차에 연결)
+model CommitteeMeeting {
+  id             Int                   @id @default(autoincrement())
+  committeeId    Int
+  meetingId      Int
+  date           String // 기본값: 이사회 개최일 (수정 가능)
+  regionId       Int?
+  locationDetail String?
+  note           String?
+  createdAt      DateTime              @default(now())
+  updatedAt      DateTime              @updatedAt
+  committee      Committee             @relation(fields: [committeeId], references: [id])
+  meeting        Meeting               @relation(fields: [meetingId], references: [id], onDelete: Cascade)
+  region         Region?               @relation(fields: [regionId], references: [id])
+  agendas        CommitteeAgenda[]
+  attendances    CommitteeAttendance[]
+}
+
+/// 소위원회 안건
+model CommitteeAgenda {
+  id                 Int              @id @default(autoincrement())
+  committeeMeetingId Int
+  sortOrder          Int              @default(0)
+  title              String
+  departmentId       Int?
+  presenter          String?
+  contact            String?
+  note               String?
+  boardAgendaId      Int? // 연결된 이사회 안건
+  committeeMeeting   CommitteeMeeting @relation(fields: [committeeMeetingId], references: [id], onDelete: Cascade)
+  department         Department?      @relation(fields: [departmentId], references: [id])
+  boardAgenda        Agenda?          @relation(fields: [boardAgendaId], references: [id], onDelete: SetNull)
+}
+
+/// 소위원회 출석 (개최일 기준 배정 위원으로 자동 생성)
+model CommitteeAttendance {
+  id                 Int              @id @default(autoincrement())
+  committeeMeetingId Int
+  personId           Int
+  status             String           @default("PRESENT") // PRESENT / ABSENT
+  absenceReason      String?
+  committeeMeeting   CommitteeMeeting @relation(fields: [committeeMeetingId], references: [id], onDelete: Cascade)
+  person             Person           @relation(fields: [personId], references: [id], onDelete: Cascade)
+
+  @@unique([committeeMeetingId, personId])
+}
+
+// ───────────── 공통 ─────────────
+
+/// 변경이력 (필드 단위 수정 전/후 값)
+model ChangeLog {
+  id        Int      @id @default(autoincrement())
+  entity    String // 대상 테이블 (Attendance, AllowancePayment, Agenda ...)
+  entityId  Int
+  label     String? // 사람이 읽을 수 있는 대상 설명 (예: 2026 제3회 / 홍길동 출석)
+  action    String // CREATE / UPDATE / DELETE
+  field     String? // 필드명(한글)
+  before    String?
+  after     String?
+  changedAt DateTime @default(now())
+
+  @@index([entity, entityId])
+  @@index([changedAt])
+}

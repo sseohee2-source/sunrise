@@ -1,6 +1,19 @@
-# 이사회 실적관리 시스템 — DB 설계안 (ERD) v0.1
+# 이사회 실적관리 시스템 — DB 설계 (ERD) v0.2
 
-> 1단계 검토용 초안입니다. 확인 후 Prisma 스키마(`prisma/schema.prisma`)로 옮깁니다.
+> 실제 스키마: `prisma/schema.prisma`
+
+## v0.2 변경 사항 (1차 검토 반영)
+
+| 항목 | 결정 | 반영 |
+|---|---|---|
+| 임기 만료 후 후임 미선임 | 임기는 그대로 두고, 실제 퇴임일이 비어 있으면 '재임중(임기만료·직무수행)' | `Appointment.retiredDate` 공란 기준으로 상태 계산 |
+| 안건 번호 | 구분별 별도 채번: 심의 제1호…, 보고 제1호… | `Agenda.type` + `Agenda.agendaNo` (표시: "심의 제1호") |
+| 보수기준 안건 의결제외 | 자동 후보 제안 없이, 이해관계 이사를 안건에 추가하면 재적인원에서 빠짐 | `Agenda.compensationScope`, `Position.compensationRole` 삭제. `isCompensation`은 표시·검색용 체크로 유지 |
+| 정액급여 | 일할계산 (설정에서 끌 수 있음) | `AppSetting allowance.proRata = true` 기본값 |
+| 연간 한도 | 연중 취임·퇴임과 관계없이 1인당 연 한도 동일 | |
+| 로그인 | 불필요 | |
+| 소위원회 | 수당 불필요, 출석 기록 필요 | `CommitteeAttendance` 추가 |
+| 개최 장소 | 지역(진주/서울 등) + 상세위치(본사, ○○빌딩 등) | `Region` 마스터 추가. '본사 지역'으로 표시된 지역 선택 시 진주 본사 개최 자동 체크 |
 
 ## 설계 원칙
 
@@ -36,6 +49,10 @@ erDiagram
     Committee ||--o{ CommitteeAssignment : "위원배정"
     Person ||--o{ CommitteeAssignment : "위원"
     Committee ||--o{ CommitteeMeeting : "개최"
+    CommitteeMeeting ||--o{ CommitteeAttendance : "소위 출석"
+    Person ||--o{ CommitteeAttendance : "출석위원"
+    Region |o--o{ Meeting : "개최 지역"
+    Region |o--o{ CommitteeMeeting : "개최 지역"
     Meeting ||--o{ CommitteeMeeting : "연결 이사회"
     CommitteeMeeting ||--o{ CommitteeAgenda : "소위 안건"
     Agenda |o--o{ CommitteeAgenda : "연결 이사회안건"
@@ -48,7 +65,6 @@ erDiagram
         int quota "정원"
         bool countsAsMember "재적이사 포함"
         bool allowanceEligible "수당 지급 대상"
-        string compensationRole "보수기준 이해관계: HEAD 기관장 / STANDING 상임이사 / null"
         int sortOrder "표시 순서"
         bool isActive
     }
@@ -82,8 +98,9 @@ erDiagram
         string date "개최일"
         string method "FACE 대면 / WRITTEN 서면 / OTHER 기타"
         string methodOther "기타 직접입력"
-        string location "개최 장소"
-        bool isHeadOffice "진주 본사 개최"
+        int regionId FK "개최 지역"
+        string locationDetail "상세 위치"
+        bool isHeadOffice "진주 본사 개최(자동 체크, 수정 가능)"
         string convocation "CHAIR 의장소집 / MEMBER_REQUEST 1/3 요구"
         string status "PLANNED 예정 / DONE 완료"
         string note
@@ -96,9 +113,8 @@ erDiagram
     Agenda {
         int id PK
         int meetingId FK
-        string agendaNo "안건 번호(예: 제1호)"
-        int sortOrder
         string type "DELIBERATION 심의 / REPORT 보고"
+        int agendaNo "구분 내 번호 (심의 제1호, 보고 제1호)"
         string title "안건명"
         int departmentId FK
         string presenter "발표자"
@@ -108,7 +124,6 @@ erDiagram
         string description "설명"
         string keywords "키워드(쉼표 구분)"
         bool isCompensation "임원 보수기준 관련"
-        string compensationScope "HEAD 기관장 / STANDING 상임이사 / BOTH"
     }
     Attendance {
         int id PK
@@ -159,6 +174,7 @@ erDiagram
         string recMethod "임추위 대면/서면"
         int rateId FK "적용 기준"
         int amount "금액(원)"
+        string calcNote "산정 근거(일할 15/31일 등)"
         string status "PLANNED 지급예정 / PAID 지급완료"
         string paidDate "지급일"
         bool isAuto "자동생성 여부"
@@ -183,7 +199,8 @@ erDiagram
         int committeeId FK
         int meetingId FK "연결 이사회 회차"
         string date "일자(기본값: 이사회 개최일)"
-        string location "장소"
+        int regionId FK "지역"
+        string locationDetail "상세 위치"
         string note
     }
     CommitteeAgenda {
@@ -197,10 +214,25 @@ erDiagram
         string note "비고"
         int boardAgendaId FK "연결 이사회 안건(선택)"
     }
+    CommitteeAttendance {
+        int id PK
+        int committeeMeetingId FK
+        int personId FK
+        string status "PRESENT / ABSENT"
+        string absenceReason
+    }
+    Region {
+        int id PK
+        string name "지역명(진주, 서울 ...)"
+        bool isHeadOffice "본사 지역"
+        int sortOrder
+        bool isActive
+    }
     ChangeLog {
         int id PK
         string entity "대상(Attendance, AllowancePayment, Agenda ...)"
         int entityId
+        string label "대상 설명"
         string action "CREATE / UPDATE / DELETE"
         string field "필드명"
         string before "변경 전"
@@ -217,6 +249,7 @@ erDiagram
 
 | 항목 | 계산 |
 |---|---|
+| 재임 상태 | 시작일 ≤ 기준일, 실제 퇴임일이 없거나 기준일 ≤ 퇴임일이면 재임. 퇴임일 없이 임기 종료일이 지났으면 '재임중(임기만료·직무수행)' |
 | 회차 재적이사 | 개최일에 재임 중이고 직책의 `countsAsMember = true`인 재임 (회차 등록 시 Attendance로 자동 생성) |
 | 회차 출석률 | `Attendance(isMember, PRESENT)` ÷ `Attendance(isMember)` |
 | 안건 재적인원 | 회차 재적 − 해당 안건 의결제외 인원 |
@@ -224,4 +257,5 @@ erDiagram
 | 1/3 요구 경고 | 소집요구 이사 수 × 3 < 개최일 기준 재적이사 수 |
 | 정원 초과 경고 | 같은 직책의 재임 기간이 겹쳐 동시 재임 인원 > 정원 |
 | 수당 한도 경고 | 연간 합계(또는 연말 예상액) > 한도 − 여유분 |
+| 정액급여 일할 | 월 정액 × 그 달 재임일수 ÷ 그 달 일수 (원 미만 절사) |
 | 소위원 중복 경고 | 한 인물의 배정 기간이 서로 다른 소위원회와 겹침 |
