@@ -1,0 +1,679 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>이사회 통합관리</title>
+<style>
+:root{
+  --bg:#f5f6f8; --panel:#fff; --line:#e2e5ea; --text:#1d2330; --muted:#6b7280;
+  --accent:#2557d6; --accent-weak:#e8eefc; --ok:#1f8a4c; --ok-weak:#e3f4ea;
+  --warn:#b7791f; --warn-weak:#fdf3e1; --bad:#c53030; --bad-weak:#fde8e8;
+  --written:#7c3aed; --written-weak:#f1eafe;
+}
+@media (prefers-color-scheme: dark){
+  :root{
+    --bg:#14171d; --panel:#1c2028; --line:#2d333e; --text:#e6e8ec; --muted:#9aa3b2;
+    --accent:#6d93f2; --accent-weak:#24304a; --ok:#4cc38a; --ok-weak:#1d3328;
+    --warn:#e0a84a; --warn-weak:#3a2f1c; --bad:#f07171; --bad-weak:#3d2224;
+    --written:#a98bf5; --written-weak:#2d2545;
+  }
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--text);font:14px/1.5 -apple-system,BlinkMacSystemFont,"Apple SD Gothic Neo","Malgun Gothic","Noto Sans KR",sans-serif}
+header{background:var(--panel);border-bottom:1px solid var(--line);position:sticky;top:0;z-index:10}
+.hwrap{max-width:1200px;margin:0 auto;padding:12px 16px;display:flex;flex-wrap:wrap;gap:12px;align-items:center}
+h1{font-size:18px;margin:0 12px 0 0}
+nav{display:flex;flex-wrap:wrap;gap:4px;flex:1}
+nav button{border:0;background:none;padding:8px 12px;border-radius:8px;color:var(--muted);font:inherit;cursor:pointer}
+nav button.on{background:var(--accent-weak);color:var(--accent);font-weight:600}
+main{max-width:1200px;margin:0 auto;padding:16px}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:16px;margin-bottom:16px}
+.card h2{font-size:16px;margin:0 0 12px}
+.card h3{font-size:14px;margin:16px 0 8px}
+.row{display:flex;flex-wrap:wrap;gap:12px;align-items:center}
+.between{justify-content:space-between}
+.grid{display:grid;gap:12px}
+.kpis{grid-template-columns:repeat(auto-fit,minmax(180px,1fr))}
+.kpi{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:14px 16px}
+.kpi .l{color:var(--muted);font-size:12px}
+.kpi .v{font-size:24px;font-weight:700;margin-top:2px;font-variant-numeric:tabular-nums}
+.kpi .s{color:var(--muted);font-size:12px;margin-top:2px}
+table{width:100%;border-collapse:collapse}
+th,td{padding:8px 10px;border-bottom:1px solid var(--line);text-align:left;vertical-align:middle}
+th{font-size:12px;color:var(--muted);font-weight:600;white-space:nowrap;background:var(--bg)}
+td.n,th.n{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+tr.click{cursor:pointer} tr.click:hover td{background:var(--accent-weak)}
+.tbl{overflow-x:auto}
+input,select,textarea{font:inherit;color:var(--text);background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:7px 9px;min-width:0}
+textarea{width:100%;min-height:60px}
+label.f{display:flex;flex-direction:column;gap:4px;font-size:12px;color:var(--muted)}
+label.f > *{font-size:14px;color:var(--text)}
+.btn{border:1px solid var(--line);background:var(--panel);color:var(--text);padding:7px 12px;border-radius:8px;cursor:pointer;font:inherit;white-space:nowrap}
+.btn:hover{border-color:var(--accent)}
+.btn.p{background:var(--accent);border-color:var(--accent);color:#fff}
+.btn.d{color:var(--bad)}
+.btn.sm{padding:3px 8px;font-size:12px}
+.tag{display:inline-block;padding:1px 8px;border-radius:999px;font-size:12px;font-weight:600;white-space:nowrap}
+.t-face{background:var(--accent-weak);color:var(--accent)}
+.t-written{background:var(--written-weak);color:var(--written)}
+.t-ok{background:var(--ok-weak);color:var(--ok)}
+.t-warn{background:var(--warn-weak);color:var(--warn)}
+.t-bad{background:var(--bad-weak);color:var(--bad)}
+.t-mute{background:var(--bg);color:var(--muted);border:1px solid var(--line)}
+.muted{color:var(--muted)}
+.small{font-size:12px}
+.bar{height:8px;background:var(--bg);border-radius:4px;overflow:hidden;min-width:80px}
+.bar > i{display:block;height:100%;background:var(--accent)}
+.chart{display:flex;align-items:flex-end;gap:8px;height:180px;padding-top:20px;overflow-x:auto}
+.chart .col{flex:1;min-width:44px;display:flex;flex-direction:column;align-items:center;gap:4px;height:100%;justify-content:flex-end}
+.chart .col .b{width:28px;border-radius:4px 4px 0 0;background:var(--accent)}
+.chart .col .b.w{background:var(--written)}
+.chart .col .x{font-size:11px;color:var(--muted);white-space:nowrap}
+.chart .col .y{font-size:11px;font-weight:600;font-variant-numeric:tabular-nums}
+.att{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:6px}
+.att label{display:flex;gap:8px;align-items:center;border:1px solid var(--line);border-radius:8px;padding:6px 10px;cursor:pointer}
+.att label.on{border-color:var(--accent);background:var(--accent-weak)}
+.empty{padding:24px;text-align:center;color:var(--muted)}
+.two{display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:16px}
+.toast{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);background:var(--text);color:var(--panel);padding:10px 16px;border-radius:8px;opacity:0;transition:opacity .2s;pointer-events:none;z-index:99}
+.toast.show{opacity:1}
+.print-only{display:none}
+@media (max-width:640px){ .hwrap{padding:10px 16px} h1{width:100%} th,td{padding:6px} }
+@media print{
+  header,.noprint{display:none!important}
+  .print-only{display:block}
+  body{background:#fff;color:#000}
+  .card{border:0;padding:0}
+  input,select,textarea{border:0;padding:0;appearance:none;background:none}
+}
+</style>
+</head>
+<body>
+<header><div class="hwrap">
+  <h1>🏛️ 이사회 통합관리</h1>
+  <nav id="nav"></nav>
+  <label class="row small muted noprint">연도
+    <select id="yearSel"></select>
+  </label>
+</div></header>
+<main id="app"></main>
+<div class="toast" id="toast"></div>
+<input type="file" id="fileIn" accept=".json,application/json" hidden>
+
+<script>
+'use strict';
+// ───────────────────────── 데이터 ─────────────────────────
+const KEY = 'board-mgmt-v1';
+const KINDS = ['대면', '서면'];
+const CATS = ['심의', '보고'];
+const RESULTS = { 심의: ['원안의결', '수정의결', '부결', '보류', '철회'], 보고: ['보고완료'] };
+const TABS = [['dash','대시보드'],['meetings','이사회 회차'],['agendas','안건 현황'],['directors','이사 명단·출석률'],['pay','수당 정산'],['settings','설정·백업']];
+
+function defaultState(){
+  return {
+    version: 1,
+    settings: { quotaStanding: 7, quotaNon: 8, rateFace: 400000, rateWritten: 150000, payTarget: 'non', depts: [] },
+    directors: [],
+    meetings: []
+  };
+}
+function load(){
+  try { const r = localStorage.getItem(KEY); if (r) return normalize(JSON.parse(r)); } catch(e) {}
+  return defaultState();
+}
+function normalize(d){
+  const s = defaultState();
+  d.settings = Object.assign(s.settings, d.settings || {});
+  d.directors = d.directors || [];
+  d.meetings = (d.meetings || []).map(m => Object.assign({ attendees: [], agendas: [], note: '', enrolledOverride: null }, m));
+  return d;
+}
+let S = load();
+function save(){
+  try { localStorage.setItem(KEY, JSON.stringify(S)); } catch(e) { toast('저장 실패: 브라우저 저장소를 사용할 수 없습니다'); }
+}
+const ui = { tab: 'dash', year: String(new Date().getFullYear()), meetingId: null, af: { cat: '', dept: '', result: '', q: '' } };
+
+// ───────────────────────── 유틸 ─────────────────────────
+const $ = s => document.querySelector(s);
+const uid = () => Math.random().toString(36).slice(2, 10) + Date.now().toString(36).slice(-4);
+const esc = v => String(v ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const won = n => (n || 0).toLocaleString('ko-KR') + '원';
+const pct = (a, b) => b ? Math.round(a / b * 1000) / 10 : 0;
+const today = () => new Date().toISOString().slice(0, 10);
+function toast(msg){ const t = $('#toast'); t.textContent = msg; t.classList.add('show'); clearTimeout(t._h); t._h = setTimeout(() => t.classList.remove('show'), 1800); }
+
+const meetingName = m => `${m.year}년 제${m.seq}차 ${m.kind}이사회`;
+const agendaLabel = a => `${a.category} 제${a.no}호`;
+const kindTag = k => `<span class="tag ${k === '서면' ? 't-written' : 't-face'}">${esc(k)}</span>`;
+function resultTag(r){
+  if (!r) return '<span class="tag t-mute">미정</span>';
+  const cls = { 원안의결: 't-ok', 수정의결: 't-ok', 보고완료: 't-ok', 부결: 't-bad', 보류: 't-warn', 철회: 't-mute' }[r] || 't-mute';
+  return `<span class="tag ${cls}">${esc(r)}</span>`;
+}
+const dirById = id => S.directors.find(d => d.id === id);
+const sortMeetings = arr => arr.slice().sort((a, b) => (a.date || '').localeCompare(b.date || '') || a.year - b.year || a.seq - b.seq);
+const inYear = m => ui.year === 'all' || String(m.year) === ui.year;
+const yearMeetings = () => sortMeetings(S.meetings.filter(inYear));
+
+// 회의일 기준 재임 중인 이사
+function seatedOn(date){
+  return S.directors.filter(d => (!d.termStart || d.termStart <= date) && (!d.termEnd || d.termEnd >= date));
+}
+function stats(m){
+  const seated = seatedOn(m.date);
+  const enrolled = m.enrolledOverride != null && m.enrolledOverride !== '' ? Number(m.enrolledOverride) : seated.length;
+  const att = m.attendees.map(dirById).filter(Boolean);
+  const attStanding = att.filter(d => d.type === '상임').length;
+  const attNon = att.length - attStanding;
+  const payees = S.settings.payTarget === 'all' ? att : att.filter(d => d.type === '비상임');
+  const rate = Number(m.rate ?? (m.kind === '서면' ? S.settings.rateWritten : S.settings.rateFace));
+  return { seated, enrolled, attended: att.length, attStanding, attNon, rate: pct(att.length, enrolled), payees, unit: rate, allowance: payees.length * rate };
+}
+function renumber(m){
+  CATS.forEach(c => { let i = 1; m.agendas.filter(a => a.category === c).forEach(a => a.no = i++); });
+}
+function allDepts(){
+  const set = new Set(S.settings.depts);
+  S.meetings.forEach(m => m.agendas.forEach(a => a.dept && set.add(a.dept)));
+  return [...set].sort((a, b) => a.localeCompare(b, 'ko'));
+}
+
+// ───────────────────────── 렌더링 ─────────────────────────
+function render(){
+  $('#nav').innerHTML = TABS.map(([k, l]) => `<button data-tab="${k}" class="${ui.tab === k ? 'on' : ''}">${l}</button>`).join('');
+  const years = [...new Set([...S.meetings.map(m => String(m.year)), String(new Date().getFullYear())])].sort().reverse();
+  if (ui.year !== 'all' && !years.includes(ui.year)) years.unshift(ui.year);
+  $('#yearSel').innerHTML = `<option value="all">전체</option>` + years.map(y => `<option ${y === ui.year ? 'selected' : ''}>${y}</option>`).join('');
+  if (ui.year === 'all') $('#yearSel').value = 'all';
+  const views = { dash: viewDash, meetings: viewMeetings, agendas: viewAgendas, directors: viewDirectors, pay: viewPay, settings: viewSettings };
+  $('#app').innerHTML = views[ui.tab]();
+}
+
+function viewDash(){
+  const ms = yearMeetings();
+  const st = ms.map(stats);
+  const face = ms.filter(m => m.kind === '대면').length;
+  const ags = ms.flatMap(m => m.agendas);
+  const delib = ags.filter(a => a.category === '심의');
+  const avg = st.length ? Math.round(st.reduce((s, x) => s + x.rate, 0) / st.length * 10) / 10 : 0;
+  const total = st.reduce((s, x) => s + x.allowance, 0);
+  const now = seatedOn(today());
+  const nS = now.filter(d => d.type === '상임').length, nN = now.length - nS;
+  const qS = +S.settings.quotaStanding, qN = +S.settings.quotaNon;
+  const resCount = RESULTS.심의.map(r => [r, delib.filter(a => a.result === r).length]).concat([['미정', delib.filter(a => !a.result).length]]);
+  const yLabel = ui.year === 'all' ? '전체 기간' : ui.year + '년';
+
+  return `
+  <div class="grid kpis" style="margin-bottom:16px">
+    <div class="kpi"><div class="l">이사 정원 / 현재 재적</div><div class="v">${qS + qN} / ${now.length}명</div>
+      <div class="s">상임 ${nS}/${qS} · 비상임 ${nN}/${qN}${(qS + qN - now.length) > 0 ? ` · <b style="color:var(--warn)">결원 ${qS + qN - now.length}</b>` : ''}</div></div>
+    <div class="kpi"><div class="l">${yLabel} 개최</div><div class="v">${ms.length}회</div><div class="s">대면 ${face} · 서면 ${ms.length - face}</div></div>
+    <div class="kpi"><div class="l">${yLabel} 안건</div><div class="v">${ags.length}건</div><div class="s">심의 ${delib.length} · 보고 ${ags.length - delib.length}</div></div>
+    <div class="kpi"><div class="l">평균 출석률</div><div class="v">${avg}%</div><div class="s">회차별 출석률 평균</div></div>
+    <div class="kpi"><div class="l">수당 합계</div><div class="v">${won(total)}</div><div class="s">${S.settings.payTarget === 'all' ? '참석 이사 전원' : '비상임이사'} 기준</div></div>
+  </div>
+  <div class="two">
+    <div class="card"><h2>회차별 출석률</h2>
+      ${ms.length ? `<div class="chart">${ms.map((m, i) => `
+        <div class="col" title="${esc(meetingName(m))} · ${st[i].attended}/${st[i].enrolled}명">
+          <div class="y">${st[i].rate}%</div>
+          <div class="b ${m.kind === '서면' ? 'w' : ''}" style="height:${Math.max(st[i].rate, 2) * 1.2}px"></div>
+          <div class="x">${ui.year === 'all' ? String(m.year).slice(2) + '-' : ''}${m.seq}차</div>
+        </div>`).join('')}</div>
+        <div class="small muted" style="margin-top:8px">${kindTag('대면')} ${kindTag('서면')}</div>` : '<div class="empty">등록된 이사회가 없습니다</div>'}
+    </div>
+    <div class="card"><h2>심의안건 의결 결과</h2>
+      ${delib.length ? `<table>${resCount.filter(r => r[1]).map(([r, n]) => `
+        <tr><td style="width:90px">${resultTag(r === '미정' ? '' : r)}</td><td><div class="bar"><i style="width:${pct(n, delib.length)}%"></i></div></td><td class="n" style="width:90px">${n}건 (${pct(n, delib.length)}%)</td></tr>`).join('')}</table>`
+        : '<div class="empty">심의안건이 없습니다</div>'}
+    </div>
+  </div>
+  <div class="card"><div class="row between"><h2>회차 목록</h2><button class="btn p noprint" data-act="newMeeting">+ 이사회 등록</button></div>
+    ${meetingTable(ms.slice().reverse())}
+  </div>`;
+}
+
+function meetingTable(ms){
+  if (!ms.length) return '<div class="empty">등록된 이사회가 없습니다. “+ 이사회 등록”으로 시작하세요.</div>';
+  return `<div class="tbl"><table>
+    <thead><tr><th>회차</th><th>일자</th><th>구분</th><th class="n">재적</th><th class="n">참석</th><th class="n">출석률</th><th class="n">심의</th><th class="n">보고</th><th class="n">수당</th></tr></thead>
+    <tbody>${ms.map(m => { const s = stats(m); return `
+      <tr class="click" data-open="${m.id}">
+        <td><b>${m.year}년 제${m.seq}차</b></td><td>${esc(m.date)}</td><td>${kindTag(m.kind)}</td>
+        <td class="n">${s.enrolled}</td><td class="n">${s.attended}</td>
+        <td class="n">${s.rate}%</td>
+        <td class="n">${m.agendas.filter(a => a.category === '심의').length}</td>
+        <td class="n">${m.agendas.filter(a => a.category === '보고').length}</td>
+        <td class="n">${won(s.allowance)}</td></tr>`; }).join('')}
+    </tbody></table></div>`;
+}
+
+function viewMeetings(){
+  const m = S.meetings.find(x => x.id === ui.meetingId);
+  if (!m) {
+    return `<div class="card"><div class="row between"><h2>이사회 회차 (${ui.year === 'all' ? '전체' : ui.year + '년'})</h2>
+      <div class="row noprint"><button class="btn" data-act="csvMeetings">엑셀(CSV) 내보내기</button><button class="btn p" data-act="newMeeting">+ 이사회 등록</button></div></div>
+      ${meetingTable(yearMeetings().reverse())}</div>`;
+  }
+  const s = stats(m);
+  const depts = allDepts();
+  const seatedIds = new Set(s.seated.map(d => d.id));
+  // 재임 기간 외 이사가 참석자로 체크된 경우도 표시
+  const shown = s.seated.concat(m.attendees.map(dirById).filter(d => d && !seatedIds.has(d.id)));
+  const order = d => (d.type === '상임' ? 0 : 1);
+  shown.sort((a, b) => order(a) - order(b) || a.name.localeCompare(b.name, 'ko'));
+  const agendaRows = cat => {
+    const list = m.agendas.filter(a => a.category === cat);
+    if (!list.length) return `<tr><td colspan="6" class="muted small">${cat}안건 없음</td></tr>`;
+    return list.map(a => `
+      <tr>
+        <td style="white-space:nowrap"><b>${agendaLabel(a)}</b></td>
+        <td style="min-width:220px"><input style="width:100%" data-ag="${a.id}" data-k="title" value="${esc(a.title)}" placeholder="안건명"></td>
+        <td style="min-width:130px"><input style="width:100%" list="deptList" data-ag="${a.id}" data-k="dept" value="${esc(a.dept)}" placeholder="담당부서"></td>
+        <td><select data-ag="${a.id}" data-k="result"><option value="">미정</option>${RESULTS[cat].map(r => `<option ${a.result === r ? 'selected' : ''}>${r}</option>`).join('')}</select><span class="print-only">${esc(a.result || '미정')}</span></td>
+        <td style="min-width:140px"><input style="width:100%" data-ag="${a.id}" data-k="note" value="${esc(a.note)}" placeholder="비고"></td>
+        <td class="noprint" style="white-space:nowrap">
+          <button class="btn sm" data-act="agUp" data-id="${a.id}" title="위로">▲</button>
+          <button class="btn sm" data-act="agDown" data-id="${a.id}" title="아래로">▼</button>
+          <button class="btn sm d" data-act="agDel" data-id="${a.id}">삭제</button></td>
+      </tr>`).join('');
+  };
+  return `
+  <div class="row between noprint" style="margin-bottom:12px">
+    <button class="btn" data-act="back">← 회차 목록</button>
+    <div class="row"><button class="btn" data-act="print">인쇄 / PDF</button><button class="btn d" data-act="delMeeting">회차 삭제</button></div>
+  </div>
+  <div class="card">
+    <h2>${esc(meetingName(m))}</h2>
+    <div class="row">
+      <label class="f">연도<input type="number" data-m="year" value="${m.year}" style="width:90px"></label>
+      <label class="f">회차<input type="number" min="1" data-m="seq" value="${m.seq}" style="width:70px"></label>
+      <label class="f">개최일(서면: 의결일)<input type="date" data-m="date" value="${esc(m.date)}"></label>
+      <label class="f">구분<select data-m="kind">${KINDS.map(k => `<option ${m.kind === k ? 'selected' : ''}>${k}</option>`).join('')}</select></label>
+      <label class="f">1인당 수당(원)<input type="number" step="10000" data-m="rate" value="${s.unit}" style="width:120px"></label>
+      <label class="f" title="비워두면 이사 명단의 임기 기준으로 자동 계산">재적인원 (빈칸=자동)<input type="number" min="0" data-m="enrolledOverride" value="${m.enrolledOverride ?? ''}" placeholder="${s.seated.length}" style="width:90px"></label>
+    </div>
+    <div class="grid kpis" style="margin-top:14px">
+      <div class="kpi"><div class="l">정원</div><div class="v">${+S.settings.quotaStanding + +S.settings.quotaNon}명</div><div class="s">상임 ${S.settings.quotaStanding} · 비상임 ${S.settings.quotaNon}</div></div>
+      <div class="kpi"><div class="l">재적</div><div class="v">${s.enrolled}명</div><div class="s">상임 ${s.seated.filter(d => d.type === '상임').length} · 비상임 ${s.seated.filter(d => d.type === '비상임').length} (명단 기준)</div></div>
+      <div class="kpi"><div class="l">참석 / 출석률</div><div class="v">${s.attended}명 · ${s.rate}%</div><div class="s">상임 ${s.attStanding} · 비상임 ${s.attNon} ${s.attended * 2 > s.enrolled ? '<span class="tag t-ok">과반 충족</span>' : '<span class="tag t-bad">과반 미달</span>'}</div></div>
+      <div class="kpi"><div class="l">수당</div><div class="v">${won(s.allowance)}</div><div class="s">${s.payees.length}명 × ${won(s.unit)}</div></div>
+    </div>
+  </div>
+  <div class="card">
+    <div class="row between"><h2>참석자 ${m.kind === '서면' ? '<span class="small muted">(서면 의결서 제출자)</span>' : ''}</h2>
+      <div class="row noprint"><button class="btn sm" data-act="attAll">전원 참석</button><button class="btn sm" data-act="attNone">전원 해제</button></div></div>
+    ${shown.length ? `<div class="att">${shown.map(d => { const on = m.attendees.includes(d.id); return `
+      <label class="${on ? 'on' : ''}"><input type="checkbox" data-att="${d.id}" ${on ? 'checked' : ''}>
+        <span>${esc(d.name)} <span class="small muted">${d.type}${seatedIds.has(d.id) ? '' : ' · 임기외'}</span></span></label>`; }).join('')}</div>`
+      : `<div class="empty">이 날짜에 재임 중인 이사가 없습니다. <a href="#" data-tab="directors">이사 명단</a>을 먼저 등록하세요.</div>`}
+  </div>
+  <div class="card">
+    <div class="row between"><h2>안건</h2>
+      <div class="row noprint"><button class="btn" data-act="agAdd" data-cat="심의">+ 심의안건</button><button class="btn" data-act="agAdd" data-cat="보고">+ 보고안건</button></div></div>
+    <datalist id="deptList">${depts.map(d => `<option value="${esc(d)}">`).join('')}</datalist>
+    <div class="tbl"><table>
+      <thead><tr><th>번호</th><th>안건명</th><th>담당부서</th><th>결과</th><th>비고</th><th class="noprint"></th></tr></thead>
+      <tbody>${agendaRows('심의')}${agendaRows('보고')}</tbody>
+    </table></div>
+    <h3>회의 메모</h3>
+    <textarea data-m="note" placeholder="특이사항, 주요 발언 등">${esc(m.note)}</textarea>
+  </div>`;
+}
+
+function filteredAgendas(){
+  const f = ui.af, q = f.q.trim().toLowerCase();
+  const out = [];
+  yearMeetings().forEach(m => m.agendas.forEach(a => {
+    if (f.cat && a.category !== f.cat) return;
+    if (f.dept && a.dept !== f.dept) return;
+    if (f.result && (f.result === '미정' ? a.result : a.result !== f.result)) return;
+    if (q && !(`${a.title} ${a.dept} ${a.note}`.toLowerCase().includes(q))) return;
+    out.push({ m, a });
+  }));
+  return out;
+}
+function viewAgendas(){
+  const f = ui.af, list = filteredAgendas();
+  const allRes = [...RESULTS.심의, ...RESULTS.보고, '미정'];
+  const byDept = {};
+  list.forEach(({ a }) => { const k = a.dept || '(미지정)'; (byDept[k] = byDept[k] || { 심의: 0, 보고: 0 })[a.category]++; });
+  return `
+  <div class="card">
+    <div class="row between"><h2>안건 현황 (${ui.year === 'all' ? '전체' : ui.year + '년'}) · ${list.length}건</h2>
+      <button class="btn noprint" data-act="csvAgendas">엑셀(CSV) 내보내기</button></div>
+    <div class="row noprint" style="margin-bottom:12px">
+      <select data-af="cat"><option value="">구분 전체</option>${CATS.map(c => `<option ${f.cat === c ? 'selected' : ''}>${c}</option>`).join('')}</select>
+      <select data-af="dept"><option value="">부서 전체</option>${allDepts().map(d => `<option ${f.dept === d ? 'selected' : ''}>${esc(d)}</option>`).join('')}</select>
+      <select data-af="result"><option value="">결과 전체</option>${allRes.map(r => `<option ${f.result === r ? 'selected' : ''}>${r}</option>`).join('')}</select>
+      <input data-af="q" value="${esc(f.q)}" placeholder="안건명·부서 검색" style="flex:1;min-width:160px">
+    </div>
+    ${list.length ? `<div class="tbl"><table>
+      <thead><tr><th>회차</th><th>일자</th><th>구분</th><th>번호</th><th>안건명</th><th>담당부서</th><th>결과</th></tr></thead>
+      <tbody>${list.map(({ m, a }) => `
+        <tr class="click" data-open="${m.id}"><td>${m.year}년 제${m.seq}차</td><td>${esc(m.date)}</td><td>${kindTag(m.kind)}</td>
+        <td style="white-space:nowrap">${agendaLabel(a)}</td><td>${esc(a.title) || '<span class="muted">(제목 없음)</span>'}</td><td>${esc(a.dept)}</td><td>${resultTag(a.result)}</td></tr>`).join('')}
+      </tbody></table></div>` : '<div class="empty">조건에 맞는 안건이 없습니다</div>'}
+  </div>
+  ${list.length ? `<div class="card"><h2>부서별 안건 수</h2><div class="tbl"><table>
+    <thead><tr><th>담당부서</th><th class="n">심의</th><th class="n">보고</th><th class="n">합계</th></tr></thead>
+    <tbody>${Object.entries(byDept).sort((a, b) => (b[1].심의 + b[1].보고) - (a[1].심의 + a[1].보고)).map(([d, c]) => `
+      <tr><td>${esc(d)}</td><td class="n">${c.심의}</td><td class="n">${c.보고}</td><td class="n"><b>${c.심의 + c.보고}</b></td></tr>`).join('')}</tbody>
+  </table></div></div>` : ''}`;
+}
+
+function directorStats(){
+  const ms = yearMeetings();
+  const sts = ms.map(m => [m, stats(m)]);
+  return S.directors.map(d => {
+    let eligible = 0, attended = 0, pay = 0;
+    sts.forEach(([m, s]) => {
+      const seated = s.seated.some(x => x.id === d.id);
+      const att = m.attendees.includes(d.id);
+      if (seated || att) eligible++;
+      if (att) attended++;
+      if (s.payees.some(x => x.id === d.id)) pay += s.unit;
+    });
+    return { d, eligible, attended, rate: pct(attended, eligible), pay };
+  });
+}
+function viewDirectors(){
+  const rows = directorStats();
+  const now = today();
+  const order = d => (d.type === '상임' ? 0 : 1);
+  rows.sort((a, b) => order(a.d) - order(b.d) || a.d.name.localeCompare(b.d.name, 'ko'));
+  return `
+  <div class="card">
+    <div class="row between"><h2>이사 명단 및 개인별 출석률 (${ui.year === 'all' ? '전체' : ui.year + '년'})</h2>
+      <button class="btn p noprint" data-act="addDirector">+ 이사 추가</button></div>
+    <p class="small muted" style="margin-top:0">임기 시작·종료일을 입력하면 회의일 기준으로 재적인원이 자동 계산됩니다. 퇴임한 이사는 삭제하지 말고 임기종료일을 입력하세요(과거 출석 기록 유지).</p>
+    ${rows.length ? `<div class="tbl"><table>
+      <thead><tr><th>성명</th><th>구분</th><th>직위</th><th>임기 시작</th><th>임기 종료</th><th>상태</th><th class="n">대상 회차</th><th class="n">참석</th><th>출석률</th><th class="n">수당</th><th class="noprint"></th></tr></thead>
+      <tbody>${rows.map(({ d, eligible, attended, rate, pay }) => {
+        const active = (!d.termStart || d.termStart <= now) && (!d.termEnd || d.termEnd >= now);
+        return `<tr>
+        <td><input data-dir="${d.id}" data-k="name" value="${esc(d.name)}" style="width:100px"></td>
+        <td><select data-dir="${d.id}" data-k="type"><option ${d.type === '상임' ? 'selected' : ''}>상임</option><option ${d.type === '비상임' ? 'selected' : ''}>비상임</option></select></td>
+        <td><input data-dir="${d.id}" data-k="position" value="${esc(d.position)}" placeholder="예: 이사장" style="width:110px"></td>
+        <td><input type="date" data-dir="${d.id}" data-k="termStart" value="${esc(d.termStart)}"></td>
+        <td><input type="date" data-dir="${d.id}" data-k="termEnd" value="${esc(d.termEnd)}"></td>
+        <td>${active ? '<span class="tag t-ok">재임</span>' : '<span class="tag t-mute">퇴임/예정</span>'}</td>
+        <td class="n">${eligible}</td><td class="n">${attended}</td>
+        <td><div class="row" style="gap:6px;flex-wrap:nowrap"><div class="bar" style="flex:1"><i style="width:${rate}%"></i></div><span class="small">${rate}%</span></div></td>
+        <td class="n">${won(pay)}</td>
+        <td class="noprint"><button class="btn sm d" data-act="delDirector" data-id="${d.id}">삭제</button></td></tr>`; }).join('')}
+      </tbody></table></div>` : '<div class="empty">등록된 이사가 없습니다. “+ 이사 추가”를 누르거나 설정 탭에서 예시 데이터를 불러오세요.</div>'}
+  </div>`;
+}
+
+function payData(){
+  const ms = yearMeetings();
+  const sts = ms.map(m => [m, stats(m)]);
+  const payees = new Map();
+  sts.forEach(([m, s]) => s.payees.forEach(d => payees.set(d.id, d)));
+  const people = [...payees.values()].sort((a, b) => a.name.localeCompare(b.name, 'ko'));
+  return { sts, people };
+}
+function viewPay(){
+  const { sts, people } = payData();
+  const total = sts.reduce((t, [, s]) => t + s.allowance, 0);
+  const sumBy = k => sts.filter(([m]) => m.kind === k).reduce((t, [, s]) => t + s.allowance, 0);
+  return `
+  <div class="grid kpis" style="margin-bottom:16px">
+    <div class="kpi"><div class="l">수당 총액</div><div class="v">${won(total)}</div><div class="s">${ui.year === 'all' ? '전체 기간' : ui.year + '년'}</div></div>
+    <div class="kpi"><div class="l">대면이사회</div><div class="v">${won(sumBy('대면'))}</div><div class="s">기본 단가 ${won(S.settings.rateFace)}/회</div></div>
+    <div class="kpi"><div class="l">서면이사회</div><div class="v">${won(sumBy('서면'))}</div><div class="s">기본 단가 ${won(S.settings.rateWritten)}/회</div></div>
+  </div>
+  <div class="card">
+    <div class="row between"><h2>이사별 × 회차별 수당</h2><button class="btn noprint" data-act="csvPay">엑셀(CSV) 내보내기</button></div>
+    <p class="small muted" style="margin-top:0">지급 대상: <b>${S.settings.payTarget === 'all' ? '참석 이사 전원' : '참석한 비상임이사'}</b> (설정 탭에서 변경)</p>
+    ${sts.length && people.length ? `<div class="tbl"><table>
+      <thead><tr><th>성명</th>${sts.map(([m]) => `<th class="n">${ui.year === 'all' ? m.year + '-' : ''}${m.seq}차<br>${kindTag(m.kind)}</th>`).join('')}<th class="n">횟수</th><th class="n">합계</th></tr></thead>
+      <tbody>${people.map(d => { let cnt = 0, sum = 0; const cells = sts.map(([, s]) => { const p = s.payees.some(x => x.id === d.id); if (p) { cnt++; sum += s.unit; } return `<td class="n">${p ? (s.unit / 10000).toLocaleString() + '만' : '<span class="muted">-</span>'}</td>`; }).join('');
+        return `<tr><td>${esc(d.name)} <span class="small muted">${d.type}</span></td>${cells}<td class="n">${cnt}</td><td class="n"><b>${won(sum)}</b></td></tr>`; }).join('')}
+        <tr><th>합계</th>${sts.map(([, s]) => `<th class="n">${(s.allowance / 10000).toLocaleString()}만</th>`).join('')}<th class="n">${sts.reduce((t, [, s]) => t + s.payees.length, 0)}</th><th class="n">${won(total)}</th></tr>
+      </tbody></table></div>` : '<div class="empty">지급 대상 수당이 없습니다</div>'}
+  </div>`;
+}
+
+function viewSettings(){
+  const st = S.settings;
+  return `
+  <div class="two">
+    <div class="card"><h2>이사회 기본 설정</h2>
+      <div class="row">
+        <label class="f">상임이사 정원<input type="number" min="0" data-set="quotaStanding" value="${st.quotaStanding}" style="width:100px"></label>
+        <label class="f">비상임이사 정원<input type="number" min="0" data-set="quotaNon" value="${st.quotaNon}" style="width:100px"></label>
+      </div>
+      <h3>수당 단가 (신규 회차 등록 시 기본값)</h3>
+      <div class="row">
+        <label class="f">대면이사회 (원/회)<input type="number" step="10000" data-set="rateFace" value="${st.rateFace}" style="width:140px"></label>
+        <label class="f">서면이사회 (원/회)<input type="number" step="10000" data-set="rateWritten" value="${st.rateWritten}" style="width:140px"></label>
+      </div>
+      <p class="small muted">단가는 회차마다 저장되므로, 단가를 바꿔도 이미 등록된 회차의 수당은 변하지 않습니다.</p>
+      <h3>수당 지급 대상</h3>
+      <select data-set="payTarget">
+        <option value="non" ${st.payTarget === 'non' ? 'selected' : ''}>참석한 비상임이사만</option>
+        <option value="all" ${st.payTarget === 'all' ? 'selected' : ''}>참석한 이사 전원 (상임 포함)</option>
+      </select>
+      <h3>담당부서 목록</h3>
+      <textarea data-set="depts" placeholder="한 줄에 한 부서씩 입력">${esc(st.depts.join('\n'))}</textarea>
+      <p class="small muted">안건 입력 시 자동완성으로 제공됩니다. 목록에 없는 부서도 직접 입력할 수 있습니다.</p>
+    </div>
+    <div class="card"><h2>데이터 백업 · 복원</h2>
+      <p class="small muted" style="margin-top:0">데이터는 이 브라우저에만 저장됩니다. 정기적으로 백업 파일을 내려받아 보관하고, 다른 PC에서는 백업 파일을 불러와 이어서 사용하세요.</p>
+      <div class="row">
+        <button class="btn p" data-act="backup">백업 파일 저장 (JSON)</button>
+        <button class="btn" data-act="restore">백업 파일 불러오기</button>
+      </div>
+      <h3>엑셀(CSV) 내보내기 (선택 연도 기준)</h3>
+      <div class="row">
+        <button class="btn" data-act="csvMeetings">회차·출석 현황</button>
+        <button class="btn" data-act="csvAgendas">안건 목록</button>
+        <button class="btn" data-act="csvPay">수당 정산</button>
+      </div>
+      <h3>기타</h3>
+      <div class="row">
+        <button class="btn" data-act="sample">예시 데이터 불러오기</button>
+        <button class="btn d" data-act="reset">전체 초기화</button>
+      </div>
+      <p class="small muted">현재: 이사 ${S.directors.length}명 · 이사회 ${S.meetings.length}회 · 안건 ${S.meetings.reduce((t, m) => t + m.agendas.length, 0)}건</p>
+    </div>
+  </div>`;
+}
+
+// ───────────────────────── 동작 ─────────────────────────
+function curMeeting(){ return S.meetings.find(x => x.id === ui.meetingId); }
+function newMeeting(){
+  const y = ui.year === 'all' ? new Date().getFullYear() : Number(ui.year);
+  const seq = Math.max(0, ...S.meetings.filter(m => m.year === y).map(m => m.seq)) + 1;
+  const date = String(y) === today().slice(0, 4) ? today() : `${y}-01-01`;
+  const m = { id: uid(), year: y, seq, date, kind: '대면', rate: S.settings.rateFace, enrolledOverride: null, attendees: [], agendas: [], note: '' };
+  S.meetings.push(m); save();
+  ui.tab = 'meetings'; ui.meetingId = m.id; render();
+}
+function moveAgenda(m, id, dir){
+  const a = m.agendas.find(x => x.id === id);
+  const same = m.agendas.filter(x => x.category === a.category);
+  const j = same.indexOf(a) + dir;
+  if (j < 0 || j >= same.length) return;
+  const i1 = m.agendas.indexOf(a), i2 = m.agendas.indexOf(same[j]);
+  [m.agendas[i1], m.agendas[i2]] = [m.agendas[i2], m.agendas[i1]];
+  renumber(m);
+}
+
+function csv(name, rows){
+  const body = rows.map(r => r.map(v => { const s = String(v ?? ''); return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; }).join(',')).join('\r\n');
+  download(name, '﻿' + body, 'text/csv;charset=utf-8');
+}
+function download(name, text, type){
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([text], { type }));
+  a.download = name; document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+}
+const yTag = () => ui.year === 'all' ? '전체' : ui.year;
+
+const actions = {
+  newMeeting,
+  back(){ ui.meetingId = null; render(); },
+  print(){ window.print(); },
+  delMeeting(){
+    const m = curMeeting();
+    if (!confirm(`${meetingName(m)}을(를) 삭제할까요? 안건과 출석 기록도 함께 삭제됩니다.`)) return;
+    S.meetings = S.meetings.filter(x => x !== m); ui.meetingId = null; save(); render(); toast('삭제했습니다');
+  },
+  attAll(){ const m = curMeeting(); m.attendees = stats(m).seated.map(d => d.id); save(); render(); },
+  attNone(){ curMeeting().attendees = []; save(); render(); },
+  agAdd(el){
+    const m = curMeeting(), cat = el.dataset.cat;
+    const a = { id: uid(), category: cat, no: 0, title: '', dept: '', result: cat === '보고' ? '보고완료' : '', note: '' };
+    // 같은 구분의 마지막 안건 뒤에 삽입 (심의 → 보고 순서 유지)
+    const last = m.agendas.map(x => x.category).lastIndexOf(cat);
+    const idx = last >= 0 ? last + 1 : (cat === '심의' ? 0 : m.agendas.length);
+    m.agendas.splice(idx, 0, a); renumber(m); save(); render();
+    const inp = document.querySelector(`[data-ag="${a.id}"][data-k="title"]`); inp && inp.focus();
+  },
+  agDel(el){ const m = curMeeting(); const a = m.agendas.find(x => x.id === el.dataset.id);
+    if (a.title && !confirm(`${agendaLabel(a)} "${a.title}"을(를) 삭제할까요?`)) return;
+    m.agendas = m.agendas.filter(x => x !== a); renumber(m); save(); render(); },
+  agUp(el){ moveAgenda(curMeeting(), el.dataset.id, -1); save(); render(); },
+  agDown(el){ moveAgenda(curMeeting(), el.dataset.id, 1); save(); render(); },
+  addDirector(){
+    S.directors.push({ id: uid(), name: '새 이사', type: '비상임', position: '', termStart: today(), termEnd: '' }); save(); render();
+    const inputs = document.querySelectorAll('[data-k="name"][data-dir]'); inputs.forEach(i => { if (i.value === '새 이사') { i.focus(); i.select(); } });
+  },
+  delDirector(el){
+    const d = dirById(el.dataset.id);
+    const used = S.meetings.some(m => m.attendees.includes(d.id));
+    if (!confirm(used ? `${d.name} 이사의 출석 기록이 있습니다. 삭제하면 과거 출석·수당 집계에서도 빠집니다.\n퇴임한 경우 임기 종료일만 입력하는 것을 권장합니다. 그래도 삭제할까요?` : `${d.name} 이사를 삭제할까요?`)) return;
+    S.directors = S.directors.filter(x => x !== d);
+    S.meetings.forEach(m => m.attendees = m.attendees.filter(id => id !== d.id));
+    save(); render();
+  },
+  backup(){ download(`이사회_백업_${today()}.json`, JSON.stringify(S, null, 2), 'application/json'); },
+  restore(){ $('#fileIn').click(); },
+  reset(){ if (confirm('모든 데이터를 삭제할까요? 되돌릴 수 없습니다. (먼저 백업을 권장합니다)')) { S = defaultState(); save(); ui.meetingId = null; render(); toast('초기화했습니다'); } },
+  sample(){
+    if ((S.meetings.length || S.directors.length) && !confirm('현재 데이터를 예시 데이터로 덮어쓸까요?')) return;
+    S = sampleData(); save(); ui.year = '2026'; ui.tab = 'dash'; ui.meetingId = null; render(); toast('예시 데이터를 불러왔습니다');
+  },
+  csvMeetings(){
+    csv(`이사회_회차현황_${yTag()}.csv`, [['연도','회차','개최일','구분','정원','재적','참석','참석(상임)','참석(비상임)','출석률(%)','심의안건수','보고안건수','1인당수당','수당지급인원','수당합계','참석자']]
+      .concat(yearMeetings().map(m => { const s = stats(m); return [m.year, m.seq, m.date, m.kind, +S.settings.quotaStanding + +S.settings.quotaNon, s.enrolled, s.attended, s.attStanding, s.attNon, s.rate,
+        m.agendas.filter(a => a.category === '심의').length, m.agendas.filter(a => a.category === '보고').length, s.unit, s.payees.length, s.allowance,
+        m.attendees.map(dirById).filter(Boolean).map(d => d.name).join(' ')]; })));
+  },
+  csvAgendas(){
+    csv(`이사회_안건목록_${yTag()}.csv`, [['연도','회차','개최일','이사회구분','안건구분','안건번호','안건명','담당부서','결과','비고']]
+      .concat(filteredAgendas().map(({ m, a }) => [m.year, m.seq, m.date, m.kind, a.category, agendaLabel(a), a.title, a.dept, a.result || '미정', a.note])));
+  },
+  csvPay(){
+    const { sts, people } = payData();
+    const head = ['성명', '구분', ...sts.map(([m]) => `${m.year}-${m.seq}차(${m.kind})`), '횟수', '합계'];
+    const rows = people.map(d => { let c = 0, t = 0; const cells = sts.map(([, s]) => { const p = s.payees.some(x => x.id === d.id); if (p) { c++; t += s.unit; } return p ? s.unit : 0; }); return [d.name, d.type, ...cells, c, t]; });
+    csv(`이사회_수당정산_${yTag()}.csv`, [head, ...rows]);
+  }
+};
+
+// 클릭
+document.addEventListener('click', e => {
+  const t = e.target.closest('[data-tab],[data-act],[data-open]');
+  if (!t) return;
+  if (t.dataset.tab) { e.preventDefault(); ui.tab = t.dataset.tab; ui.meetingId = null; render(); window.scrollTo(0, 0); }
+  else if (t.dataset.act) actions[t.dataset.act](t);
+  else if (t.dataset.open) { ui.tab = 'meetings'; ui.meetingId = t.dataset.open; render(); window.scrollTo(0, 0); }
+});
+
+// 입력 (텍스트는 change 시 저장 → 다시 그림, 검색만 즉시 반영)
+document.addEventListener('input', e => {
+  const t = e.target;
+  if (t.dataset.af === 'q') { ui.af.q = t.value; const pos = t.selectionStart; render(); const n = document.querySelector('[data-af="q"]'); n.focus(); n.setSelectionRange(pos, pos); }
+});
+document.addEventListener('change', e => {
+  const t = e.target, v = t.value;
+  if (t.id === 'yearSel') { ui.year = v; ui.meetingId = null; render(); return; }
+  if (t.dataset.af && t.dataset.af !== 'q') { ui.af[t.dataset.af] = v; render(); return; }
+  if (t.dataset.set) {
+    const k = t.dataset.set;
+    S.settings[k] = k === 'depts' ? v.split('\n').map(s => s.trim()).filter(Boolean) : k === 'payTarget' ? v : Number(v) || 0;
+    save(); toast('저장했습니다'); return;
+  }
+  const m = curMeeting();
+  if (t.dataset.m && m) {
+    const k = t.dataset.m;
+    if (k === 'year' || k === 'seq') m[k] = Number(v) || m[k];
+    else if (k === 'rate') m.rate = Number(v) || 0;
+    else if (k === 'enrolledOverride') m.enrolledOverride = v === '' ? null : Number(v);
+    else if (k === 'kind') {
+      const oldDefault = m.kind === '서면' ? S.settings.rateWritten : S.settings.rateFace;
+      m.kind = v;
+      if (Number(m.rate) === Number(oldDefault)) m.rate = v === '서면' ? S.settings.rateWritten : S.settings.rateFace;
+    }
+    else m[k] = v;
+    const dup = S.meetings.find(x => x !== m && x.year === m.year && x.seq === m.seq);
+    if (dup && (k === 'year' || k === 'seq')) toast(`주의: ${m.year}년 제${m.seq}차가 이미 있습니다`);
+    if (k === 'year' && ui.year !== 'all') ui.year = String(m.year);
+    save(); if (k !== 'note') render(); return;
+  }
+  if (t.dataset.att && m) {
+    const id = t.dataset.att;
+    m.attendees = t.checked ? [...new Set([...m.attendees, id])] : m.attendees.filter(x => x !== id);
+    save(); render(); return;
+  }
+  if (t.dataset.ag && m) {
+    const a = m.agendas.find(x => x.id === t.dataset.ag); a[t.dataset.k] = v.trim ? v.trim() : v;
+    save(); if (t.dataset.k === 'result' || t.dataset.k === 'dept') render(); return;
+  }
+  if (t.dataset.dir) {
+    const d = dirById(t.dataset.dir); d[t.dataset.k] = v; save(); render(); return;
+  }
+});
+$('#fileIn').addEventListener('change', e => {
+  const f = e.target.files[0]; if (!f) return;
+  const r = new FileReader();
+  r.onload = () => {
+    try {
+      const d = JSON.parse(r.result);
+      if (!d || !Array.isArray(d.meetings) || !Array.isArray(d.directors)) throw new Error('형식 오류');
+      if (!confirm(`백업 파일을 불러올까요? (이사 ${d.directors.length}명, 이사회 ${d.meetings.length}회)\n현재 데이터는 덮어씌워집니다.`)) return;
+      S = normalize(d); save(); ui.meetingId = null; render(); toast('복원했습니다');
+    } catch(err) { alert('백업 파일을 읽을 수 없습니다: ' + err.message); }
+    e.target.value = '';
+  };
+  r.readAsText(f);
+});
+
+// ───────────────────────── 예시 데이터 ─────────────────────────
+function sampleData(){
+  const s = defaultState();
+  s.settings.depts = ['기획조정실', '경영지원부', '재무회계부', '사업운영부', '감사실', '인사총무부'];
+  const st = [['김정훈','이사장'],['이영수','상임이사(기획)'],['박민정','상임이사(경영)'],['최성호','상임이사(사업)'],['정다은','상임이사(재무)'],['강태우','상임이사(운영)'],['윤서연','상임감사']];
+  const non = ['한지민','오세훈','서지우','임채원','조현우','신예린','배준호','홍미경'];
+  st.forEach(([n, p]) => s.directors.push({ id: uid(), name: n, type: '상임', position: p, termStart: '2025-01-01', termEnd: '' }));
+  non.forEach((n, i) => s.directors.push({ id: uid(), name: n, type: '비상임', position: '비상임이사', termStart: i === 7 ? '2026-07-01' : '2024-03-01', termEnd: i === 6 ? '2026-06-30' : '' }));
+  const plan = [
+    ['2026-01-28', '대면', [['2026년도 사업계획 및 예산(안)', '기획조정실', '원안의결'], ['직제규정 일부개정규정(안)', '인사총무부', '수정의결']], [['2025년도 4분기 경영실적', '경영지원부']]],
+    ['2026-02-25', '서면', [['2025회계연도 결산(안)', '재무회계부', '원안의결']], []],
+    ['2026-03-26', '대면', [['2026년 임원 성과계약(안)', '인사총무부', '원안의결'], ['자산 취득 승인(안)', '재무회계부', '보류'], ['보수규정 일부개정(안)', '인사총무부', '수정의결']], [['2025년도 내부감사 결과', '감사실'], ['리스크관리 현황', '기획조정실']]],
+    ['2026-05-20', '서면', [['차입금 한도 변경(안)', '재무회계부', '원안의결']], [['1분기 경영실적', '경영지원부']]],
+    ['2026-07-22', '대면', [['자산 취득 승인(안) 재상정', '재무회계부', '원안의결'], ['중장기 경영목표 수정(안)', '기획조정실', '수정의결']], [['상반기 사업 추진실적', '사업운영부'], ['2분기 경영실적', '경영지원부']]],
+    ['2026-09-17', '대면', [['2027년도 예산편성 지침(안)', '기획조정실', '원안의결'], ['취업규칙 개정(안)', '인사총무부', '']], [['3분기 내부감사 결과', '감사실']]]
+  ];
+  plan.forEach(([date, kind, del, rep], i) => {
+    const m = { id: uid(), year: 2026, seq: i + 1, date, kind, rate: kind === '서면' ? 150000 : 400000, enrolledOverride: null, attendees: [], agendas: [], note: '' };
+    const seated = s.directors.filter(d => d.termStart <= date && (!d.termEnd || d.termEnd >= date));
+    m.attendees = seated.filter((d, j) => (j * 7 + i * 3) % 10 > (kind === '서면' ? 0 : 1)).map(d => d.id);
+    del.forEach(([t, d, r]) => m.agendas.push({ id: uid(), category: '심의', no: 0, title: t, dept: d, result: r, note: '' }));
+    rep.forEach(([t, d]) => m.agendas.push({ id: uid(), category: '보고', no: 0, title: t, dept: d, result: '보고완료', note: '' }));
+    renumber(m); s.meetings.push(m);
+  });
+  return s;
+}
+
+render();
+</script>
+</body>
+</html>
