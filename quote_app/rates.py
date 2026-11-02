@@ -8,13 +8,15 @@ from __future__ import annotations
 import os
 import sys
 from dataclasses import fields
+from datetime import date, datetime
 
 from openpyxl import Workbook, load_workbook
 from openpyxl.styles import Alignment, Font, PatternFill
 from openpyxl.worksheet.datavalidation import DataValidation
 
-from .model import (FACILITY_GROUPS, FAMILY_DISCOUNT_KEY, NO_DISCOUNT, Discount, DormType,
-                    RateBook, Room, Supplier)
+from .model import (BASIS_POLICY, BASIS_RULE, DEFAULT_RULE_DATE, DEFAULT_RULE_NAME, FACILITY_GROUPS,
+                    FAMILY_DISCOUNT_KEY, NO_DISCOUNT, Discount, DormSchedule, DormType, FeeSchedule, RateBook,
+                    Room, Supplier)
 
 RATE_FILE_NAME = "사용료기준.xlsx"
 
@@ -86,6 +88,12 @@ _DISCOUNTS = [
 ]
 
 
+def _default_discount(name: str, category: str, rate: float | None) -> Discount:
+    if rate is None:     # 패밀리기업 등 내부 방침결재에 따른 할인 (문서번호·결재일은 담당자가 입력)
+        return Discount(name, category, rate, BASIS_POLICY, "", None)
+    return Discount(name, category, rate, BASIS_RULE, DEFAULT_RULE_NAME, DEFAULT_RULE_DATE)
+
+
 def default_book() -> RateBook:
     rooms = []
     for name, bld, fl, cap, kind, group, note in _ROOMS:
@@ -93,8 +101,11 @@ def default_book() -> RateBook:
         rooms.append(Room(name, bld, fl, cap, kind, group, base, extra, available=not note, note=note))
     return RateBook(rooms=rooms,
                     dorms=[DormType(n, f) for n, f in _DORMS],
-                    discounts=[Discount(n, c, r) for n, c, r in _DISCOUNTS],
-                    supplier=Supplier())
+                    discounts=[_default_discount(n, c, r) for n, c, r in _DISCOUNTS],
+                    supplier=Supplier(),
+                    fac_schedules=[FeeSchedule(DEFAULT_RULE_DATE, DEFAULT_RULE_NAME,
+                                               {r.name: (r.base_fee, r.extra_fee) for r in rooms})],
+                    dorm_schedules=[DormSchedule(DEFAULT_RULE_DATE, DEFAULT_RULE_NAME, dict(_DORMS))])
 
 
 # ---------------------------------------------------------------- 파일 위치
@@ -117,10 +128,12 @@ def rate_file_path() -> str:
 
 
 # ---------------------------------------------------------------- 읽기/쓰기
-ROOM_HEADERS = ["호실", "건물명", "층", "수용인원", "형태", "규모(구분)", "기본(3시간)", "추가 1시간당",
-                "대관가능(O/X)", "비고"]
-DORM_HEADERS = ["구분", "1박 사용료"]
-DISC_HEADERS = ["대상", "구분", "할인률(%)", "비고"]
+ROOM_HEADERS = ["호실", "건물명", "층", "수용인원", "형태", "규모(구분)", "대관가능(O/X)", "비고"]
+FAC_FEE_HEADERS = ["시행일", "근거", "호실", "기본(3시간)", "추가 1시간당"]
+DORM_HEADERS = ["구분"]
+DORM_FEE_HEADERS = ["시행일", "근거", "구분", "1박 사용료"]
+DISC_HEADERS = ["대상", "구분", "할인률(%)", "근거 구분(규정/내부방침)", "근거(규정명 또는 결재 문서번호)",
+                "시행일 또는 결재일", "비고"]
 SUPPLIER_LABELS = {
     "title": "견적명", "name": "공급자", "biz_no": "사업자번호", "ceo": "대표", "biz_type": "업태",
     "biz_item": "종목", "address": "주소", "manager": "담당자", "manager_email": "이메일",
@@ -130,6 +143,7 @@ SUPPLIER_LABELS = {
 
 _HEAD_FONT = Font(bold=True, color="FFFFFF")
 _HEAD_FILL = PatternFill("solid", fgColor="404040")
+_DATE_FMT = "yyyy.mm.dd"
 
 
 def _header(ws, headers, widths):
@@ -146,31 +160,45 @@ def save_book(book: RateBook, path: str) -> None:
     wb = Workbook()
     ws = wb.active
     ws.title = "시설"
-    _header(ws, ROOM_HEADERS, [14, 10, 7, 11, 10, 28, 12, 13, 13, 28])
+    _header(ws, ROOM_HEADERS, [14, 10, 7, 11, 10, 28, 13, 28])
     for r in book.rooms:
-        ws.append([r.name, r.building, r.floor, r.capacity, r.kind, r.group, r.base_fee, r.extra_fee,
-                   "O" if r.available else "X", r.note])
-    for row in ws.iter_rows(min_row=2, min_col=7, max_col=8):
-        for c in row:
-            c.number_format = "#,##0"
+        ws.append([r.name, r.building, r.floor, r.capacity, r.kind, r.group, "O" if r.available else "X", r.note])
     dv = DataValidation(type="list", formula1='"' + ",".join(FACILITY_GROUPS) + '"', allow_blank=False)
     dv.add("F2:F500")
     ws.add_data_validation(dv)
     dv2 = DataValidation(type="list", formula1='"O,X"')
-    dv2.add("I2:I500")
+    dv2.add("G2:G500")
     ws.add_data_validation(dv2)
 
+    ws = wb.create_sheet("시설요금")
+    _header(ws, FAC_FEE_HEADERS, [12, 22, 14, 13, 13])
+    for sc in sorted(book.fac_schedules, key=lambda x: x.effective):
+        for r in book.rooms:
+            base, extra = sc.fees.get(r.name, (r.base_fee, r.extra_fee))
+            ws.append([sc.effective, sc.basis, r.name, base, extra])
+            ws.cell(ws.max_row, 1).number_format = _DATE_FMT
+            for c in (4, 5):
+                ws.cell(ws.max_row, c).number_format = "#,##0"
+
     ws = wb.create_sheet("기숙사")
-    _header(ws, DORM_HEADERS, [22, 14])
+    _header(ws, DORM_HEADERS, [22])
     for d in book.dorms:
-        ws.append([d.name, d.fee])
-        ws.cell(ws.max_row, 2).number_format = "#,##0"
+        ws.append([d.name])
+
+    ws = wb.create_sheet("기숙사요금")
+    _header(ws, DORM_FEE_HEADERS, [12, 22, 22, 13])
+    for sc in sorted(book.dorm_schedules, key=lambda x: x.effective):
+        for d in book.dorms:
+            ws.append([sc.effective, sc.basis, d.name, sc.fees.get(d.name, d.fee)])
+            ws.cell(ws.max_row, 1).number_format = _DATE_FMT
+            ws.cell(ws.max_row, 4).number_format = "#,##0"
 
     ws = wb.create_sheet("할인기준")
-    _header(ws, DISC_HEADERS, [90, 10, 11, 40])
+    _header(ws, DISC_HEADERS, [80, 10, 11, 14, 30, 14, 34])
     for d in book.discounts:
-        ws.append([d.name, d.category, None if d.rate is None else round(d.rate * 100, 4),
-                   "비워두면 담당자가 행별로 할인률 선택" if d.rate is None else ""])
+        ws.append([d.name, d.category, None if d.rate is None else round(d.rate * 100, 4), d.basis_kind, d.basis,
+                   d.basis_date, "할인률을 비워두면 담당자가 행별로 선택" if d.rate is None else ""])
+        ws.cell(ws.max_row, 6).number_format = _DATE_FMT
 
     ws = wb.create_sheet("공급자정보")
     _header(ws, ["항목", "값", "키(수정금지)"], [20, 90, 16])
@@ -195,31 +223,105 @@ def _i(v) -> int:
     return int(round(float(str(v).replace(",", ""))))
 
 
+def parse_date(v) -> date | None:
+    """엑셀 날짜 셀 또는 '2024.06.24', '2024-06-24', '20240624' 형식."""
+    if v in (None, ""):
+        return None
+    if isinstance(v, datetime):
+        return v.date()
+    if isinstance(v, date):
+        return v
+    d = "".join(ch for ch in str(v) if ch.isdigit())
+    if len(d) == 8:
+        try:
+            return date(int(d[:4]), int(d[4:6]), int(d[6:]))
+        except ValueError:
+            return None
+    return None
+
+
+def _rows_by_header(ws):
+    """첫 줄 머리글 이름으로 각 줄을 dict 로 읽는다 (열 순서가 바뀌어도 동작)."""
+    rows = ws.iter_rows(values_only=True)
+    head = [_s(h) for h in next(rows, [])]
+    for row in rows:
+        if row and any(v not in (None, "") for v in row):
+            yield {h: (row[i] if i < len(row) else None) for i, h in enumerate(head) if h}
+
+
 def load_book(path: str) -> RateBook:
     wb = load_workbook(path, data_only=True)
-    rooms = []
-    for row in wb["시설"].iter_rows(min_row=2, values_only=True):
-        if not row or not _s(row[0]):
+    rooms, legacy_fees = [], {}
+    for r in _rows_by_header(wb["시설"]):
+        name = _s(r.get("호실"))
+        if not name:
             continue
-        row = list(row) + [None] * 10
-        rooms.append(Room(_s(row[0]), _s(row[1]), _s(row[2]), _s(row[3]), _s(row[4]), _s(row[5]),
-                          _i(row[6]), _i(row[7]), available=_s(row[8]).upper() != "X", note=_s(row[9])))
-    dorms = [DormType(_s(r[0]), _i(r[1])) for r in wb["기숙사"].iter_rows(min_row=2, values_only=True)
-             if r and _s(r[0])]
+        group = _s(r.get("규모(구분)"))
+        base, extra = GROUP_FEES.get(group, (0, 0))
+        if "기본(3시간)" in r:          # 예전 형식: 시설 시트에 요금이 함께 있음
+            base, extra = _i(r.get("기본(3시간)")), _i(r.get("추가 1시간당"))
+            legacy_fees[name] = (base, extra)
+        rooms.append(Room(name, _s(r.get("건물명")), _s(r.get("층")), _s(r.get("수용인원")), _s(r.get("형태")),
+                          group, base, extra, available=_s(r.get("대관가능(O/X)")).upper() != "X",
+                          note=_s(r.get("비고"))))
+
+    fac_scheds: dict[date, FeeSchedule] = {}
+    if "시설요금" in wb.sheetnames:
+        for r in _rows_by_header(wb["시설요금"]):
+            eff, name = parse_date(r.get("시행일")), _s(r.get("호실"))
+            if not eff or not name:
+                continue
+            sc = fac_scheds.setdefault(eff, FeeSchedule(eff, _s(r.get("근거")) or DEFAULT_RULE_NAME, {}))
+            sc.fees[name] = (_i(r.get("기본(3시간)")), _i(r.get("추가 1시간당")))
+    if not fac_scheds:     # 예전 형식 → 현행 규정(2024.06.24. 개정) 기준 하나로
+        fac_scheds[DEFAULT_RULE_DATE] = FeeSchedule(
+            DEFAULT_RULE_DATE, DEFAULT_RULE_NAME, legacy_fees or {r.name: (r.base_fee, r.extra_fee) for r in rooms})
+
+    dorms, legacy_dorm = [], {}
+    for r in _rows_by_header(wb["기숙사"]):
+        name = _s(r.get("구분"))
+        if not name:
+            continue
+        fee = _i(r.get("1박 사용료")) if "1박 사용료" in r else dict(_DORMS).get(name, 0)
+        if "1박 사용료" in r:
+            legacy_dorm[name] = fee
+        dorms.append(DormType(name, fee))
+    dorm_scheds: dict[date, DormSchedule] = {}
+    if "기숙사요금" in wb.sheetnames:
+        for r in _rows_by_header(wb["기숙사요금"]):
+            eff, name = parse_date(r.get("시행일")), _s(r.get("구분"))
+            if not eff or not name:
+                continue
+            sc = dorm_scheds.setdefault(eff, DormSchedule(eff, _s(r.get("근거")) or DEFAULT_RULE_NAME, {}))
+            sc.fees[name] = _i(r.get("1박 사용료"))
+    if not dorm_scheds:
+        dorm_scheds[DEFAULT_RULE_DATE] = DormSchedule(DEFAULT_RULE_DATE, DEFAULT_RULE_NAME,
+                                                      legacy_dorm or {d.name: d.fee for d in dorms})
+
     discounts = []
-    for r in wb["할인기준"].iter_rows(min_row=2, values_only=True):
-        if not r or not _s(r[0]):
+    for r in _rows_by_header(wb["할인기준"]):
+        name = _s(r.get("대상"))
+        if not name:
             continue
-        rate = r[2] if len(r) > 2 else None
+        rate = r.get("할인률(%)")
         rate = None if rate in (None, "") else float(str(rate).replace("%", "")) / 100
-        discounts.append(Discount(_s(r[0]), _s(r[1]), rate))
+        if "근거 구분(규정/내부방침)" in r:
+            kind = _s(r.get("근거 구분(규정/내부방침)")) or BASIS_RULE
+            kind = BASIS_POLICY if "내부" in kind or "방침" in kind else BASIS_RULE
+            discounts.append(Discount(name, _s(r.get("구분")), rate, kind,
+                                      _s(r.get("근거(규정명 또는 결재 문서번호)")),
+                                      parse_date(r.get("시행일 또는 결재일"))))
+        else:                 # 예전 형식
+            discounts.append(_default_discount(name, _s(r.get("구분")), rate))
+
     sup = Supplier()
     if "공급자정보" in wb.sheetnames:
         names = {f.name for f in fields(Supplier)}
         for r in wb["공급자정보"].iter_rows(min_row=2, values_only=True):
             if r and len(r) > 2 and r[2] in names:
                 setattr(sup, r[2], "" if r[1] is None else str(r[1]))
-    return RateBook(rooms, dorms, discounts, sup)
+    return RateBook(rooms, dorms, discounts, sup, sorted(fac_scheds.values(), key=lambda x: x.effective),
+                    sorted(dorm_scheds.values(), key=lambda x: x.effective))
 
 
 def load_or_create(path: str | None = None) -> tuple[RateBook, str]:

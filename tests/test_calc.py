@@ -204,30 +204,89 @@ def test_facility_sort_date_then_room_order():
     assert order(book) == [(5, "대강당"), (5, "205"), (5, "301"), (6, "205")]
 
 
+def _revise(book, eff, room_fees=None, dorm_fees=None, basis="연수사업추진규칙"):
+    """규정 개정: 시행일 eff 의 새 요금 기준을 등록 (기존 기준을 복사한 뒤 일부 변경)."""
+    from quote_app.model import DormSchedule, FeeSchedule
+    fs, ds = book.fac_schedules[-1], book.dorm_schedules[-1]
+    book.fac_schedules.append(FeeSchedule(eff, basis, {**fs.fees, **(room_fees or {})}))
+    book.dorm_schedules.append(DormSchedule(eff, basis, {**ds.fees, **(dorm_fees or {})}))
+
+
 def test_saved_quote_keeps_prices_after_rule_change(tmp_path):
     import copy
     book = copy.deepcopy(BOOK)
-    q = Quote(company="A", discount="[50%감면]공공기관 및 유관단체",
-              facilities=[FacilityUse(date(2026, 1, 5), "301", time(9), time(18), rate=0.5)],
-              dorms=[DormUse(date(2026, 1, 5), date(2026, 1, 6), "1인실", 2, rate=0.5)])
+    q = Quote(company="A", discount="[50%감면]공공기관 및 유관단체", quote_date=date(2026, 3, 2),
+              facilities=[FacilityUse(date(2026, 4, 5), "301", time(9), time(18), rate=0.5)],
+              dorms=[DormUse(date(2026, 4, 5), date(2026, 4, 6), "1인실", 2, rate=0.5)])
     case = QuoteCase()
     v1 = case.save_version(q, book, as_new=False)
     old_total = v1.grand_total
     assert old_total == won((330_000 * 1.1 + 60_000 * 1.1) * 0.5)
-    # 규정 개정: 301호 요금 인상, 기숙사 인상, 감면율 30%
-    book.room("301").base_fee, book.room("301").extra_fee = 200_000, 50_000
-    book.dorm("1인실").fee = 35_000
+    assert v1.quote.fac_basis == "연수사업추진규칙(2024.06.24.)"
+    # 규정 개정 (2026.10.01. 시행): 301호·기숙사 인상, 감면율 30%
+    _revise(book, date(2026, 10, 1), {"301": (200_000, 50_000)}, {"1인실": 35_000})
     book.discount("[50%감면]공공기관 및 유관단체").rate = 0.3
     loaded = QuoteCase.load(case.save(str(tmp_path / "c.json")))
     old_q = loaded.versions[0].quote
     assert calculate(old_q, book).grand_total == old_total            # 개정 전 견적은 개정 전 금액
-    assert price_differences(old_q, book)                              # 화면에 기준 변경 안내
+    assert price_differences(old_q, book, date(2026, 11, 2))           # 현재 시행 기준과 다름 안내
     loaded.save_version(Quote.from_dict(old_q.to_dict()), book, as_new=False)   # 덮어쓰기: 그대로
     assert loaded.versions[0].grand_total == old_total
-    v2 = loaded.save_version(Quote.from_dict(old_q.to_dict()), book, as_new=True)  # 새 차수: 현재 기준
+    q2 = Quote.from_dict(old_q.to_dict())
+    q2.quote_date = date(2026, 11, 2)                                  # 개정 후 견적일자로 새 차수
+    v2 = loaded.save_version(q2, book, as_new=True)
     assert v2.grand_total == won((200_000 + 6 * 50_000) * 1.1 * 0.7 + 70_000 * 1.1 * 0.7)
-    assert not price_differences(v2.quote, book)
+    assert v2.quote.fac_basis == "연수사업추진규칙(2026.10.01.)"
+    assert not price_differences(v2.quote, book, date(2026, 11, 2))
 
+
+def test_rates_follow_quote_date_effective_schedule():
+    import copy
+    book = copy.deepcopy(BOOK)
+    _revise(book, date(2027, 1, 1), {"205": (120_000, 25_000)}, basis="연수사업추진규칙")
+    use = [FacilityUse(date(2027, 2, 1), "205", time(9), time(12))]
+    before = Quote(quote_date=date(2026, 12, 31), facilities=use)
+    after = Quote(quote_date=date(2027, 1, 1), facilities=use)
+    assert calculate(before, book).facility_sum.fee == 100_000      # 견적일자에 시행 중인 기준 (가)
+    assert calculate(after, book).facility_sum.fee == 120_000
+    assert book.fac_schedule_at(date(2026, 12, 31)).label() == "연수사업추진규칙(2024.06.24.)"
+
+
+def test_schedules_and_discount_basis_roundtrip(tmp_path):
+    import copy
+    from quote_app.model import BASIS_POLICY
+    book = copy.deepcopy(BOOK)
+    _revise(book, date(2027, 1, 1), {"205": (120_000, 25_000)}, {"2인실": 45_000})
+    fam = book.discount("[할인] 패밀리기업 할인")
+    assert fam.basis_kind == BASIS_POLICY
+    fam.basis, fam.basis_date = "연수원-1234", date(2025, 3, 1)
+    p = tmp_path / "r.xlsx"
+    save_book(book, str(p))
+    b = load_book(str(p))
+    assert b == book
+    assert b.discount("[할인] 패밀리기업 할인").basis_text() == "내부방침 결재 연수원-1234(2025.03.01.)"
+    assert b.discount("[50%감면]공공기관 및 유관단체").basis_text() == "연수사업추진규칙(2024.06.24.)"
+
+
+def test_legacy_rate_file_migrates(tmp_path):
+    from openpyxl import Workbook
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "시설"
+    ws.append(["호실", "건물명", "층", "수용인원", "형태", "규모(구분)", "기본(3시간)", "추가 1시간당", "대관가능(O/X)", "비고"])
+    ws.append(["301", "봉사관", "3층", "80", "강의실", "강의실(50인이상 100인미만)", 160000, 31000, "O", ""])
+    ws = wb.create_sheet("기숙사")
+    ws.append(["구분", "1박 사용료"])
+    ws.append(["1인실", 33000])
+    ws = wb.create_sheet("할인기준")
+    ws.append(["대상", "구분", "할인률(%)", "비고"])
+    ws.append(["[할인] 패밀리기업 할인", "할인", None, ""])
+    p = tmp_path / "old.xlsx"
+    wb.save(p)
+    b = load_book(str(p))
+    assert b.room_at("301", date(2026, 1, 1)).base_fee == 160_000
+    assert b.dorm_at("1인실", date(2026, 1, 1)).fee == 33_000
+    assert b.fac_schedules[0].label() == "연수사업추진규칙(2024.06.24.)"
 
 def test_old_files_without_snapshot_use_current_rates():
     q = Quote.from_dict({"facilities": [{"use_date": "2026-01-05", "room": "205", "start": "09:00",

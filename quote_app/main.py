@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import copy
+from dataclasses import replace
 import os
 import sys
 import tempfile
@@ -17,12 +18,13 @@ from PySide6.QtWidgets import (QAbstractItemView, QApplication, QCheckBox, QComb
                                QTableWidgetItem, QTabWidget, QTimeEdit, QToolBar, QVBoxLayout, QWidget)
 
 from . import __version__
-from .model import (FACILITY_GROUPS, NO_DISCOUNT, VAT_RATE, DormUse, FacilityUse, Quote, RateBook, Room, Supplier,
-                    billable_hours, calculate, digits, facility_fee, fmt_biz_no, line_dorm, line_room,
-                    live_biz_no, live_phone, price_differences, won)
+from .model import (BASIS_POLICY, BASIS_RULE, DEFAULT_RULE_DATE, DEFAULT_RULE_NAME, FACILITY_GROUPS, NO_DISCOUNT,
+                    VAT_RATE, Discount, DormUse, FacilityUse, Quote, RateBook, Room, Supplier, applied_basis,
+                    billable_hours, calculate, digits, facility_fee, fmt_biz_no, line_dorm, line_room, live_biz_no,
+                    live_phone, price_differences, won)
 from .pdf_quote import build_quote_pdf, default_pdf_name, stamp_file
 from .rates import (GROUP_FEES, SUPPLIER_LABELS, app_dir, discount_choices, is_family, load_or_create,
-                    resource_path, save_book)
+                    parse_date, resource_path, save_book)
 from .store import (RETENTION_MONTHS, QuoteCase, cases_by_biz, list_cases, normalize_biz,
                     prune_old_versions, store_dir)
 
@@ -193,7 +195,7 @@ class FacilityTable(QTableWidget):
 
     def refresh_row(self, r: int):
         u = self.row_use(r)
-        room: Room | None = line_room(u, self.win.book)
+        room: Room | None = line_room(u, self.win.book, self.win.quote_on())
         self.item(r, self.C_BLD).setText(room.building if room else "")
         self.item(r, self.C_FLOOR).setText(room.floor if room else "")
         self.item(r, self.C_CAP).setText(room.capacity if room else "")
@@ -320,7 +322,7 @@ class DormTable(QTableWidget):
 
     def refresh_row(self, r: int):
         u = self.row_use(r)
-        dorm = line_dorm(u, self.win.book)
+        dorm = line_dorm(u, self.win.book, self.win.quote_on())
         nights = (u.check_out - u.check_in).days
         fee = dorm.fee * max(0, nights) * u.count if dorm else 0
         vat = won(fee * VAT_RATE)
@@ -707,6 +709,161 @@ class SupplierDialog(QDialog):
         self.accept()
 
 
+# ---------------------------------------------------------------- 시행일별 요금 기준 편집
+class ScheduleEditor(QWidget):
+    """요금표 위에 놓이는 [적용 기준(시행일)] 선택·등록 막대.
+    표의 각 줄은 item(r, 0) 의 UserRole 에 고유번호(uid)를 갖고, 요금 칸(fee_cols)은 선택한 시행일 기준의 값을 보여준다."""
+
+    def __init__(self, table: QTableWidget, fee_cols: tuple, scheds: list[dict], what: str):
+        super().__init__()
+        self.t, self.cols, self.scheds, self.what = table, fee_cols, scheds, what
+        self.idx = -1
+        h = QHBoxLayout(self)
+        h.setContentsMargins(0, 0, 0, 0)
+        h.addWidget(QLabel("<b>적용 기준(시행일)</b>"))
+        self.sel = QComboBox()
+        self.sel.setMinimumWidth(260)
+        h.addWidget(self.sel)
+        h.addSpacing(10)
+        h.addWidget(QLabel("시행일"))
+        self.eff = make_date_edit()
+        h.addWidget(self.eff)
+        h.addWidget(QLabel("근거"))
+        self.basis = QLineEdit()
+        self.basis.setMinimumWidth(160)
+        h.addWidget(self.basis)
+        b = QPushButton("새 기준 등록(개정)")
+        b.setToolTip("선택한 기준의 요금을 복사해 새 시행일 기준을 만듭니다. 기존 기준은 그대로 남습니다.")
+        b.clicked.connect(self.add_schedule)
+        h.addWidget(b)
+        b = QPushButton("이 기준 삭제")
+        b.clicked.connect(self.delete_schedule)
+        h.addWidget(b)
+        h.addStretch()
+        self.sel.currentIndexChanged.connect(self.on_select)
+        self.eff.dateChanged.connect(self.on_meta)
+        self.basis.textChanged.connect(self.on_meta)
+        self.reload_combo(self.current_index())
+
+    def current_index(self) -> int:
+        """오늘 시행 중인 기준을 처음에 보여준다."""
+        today = date.today()
+        valid = [i for i, sc in enumerate(self.scheds) if sc["effective"] <= today]
+        return valid[-1] if valid else 0
+
+    @staticmethod
+    def label(sc) -> str:
+        on = date.today()
+        tag = " (현재 시행)" if sc.get("_current") else (" (시행 예정)" if sc["effective"] > on else "")
+        return f"{sc['effective']:%Y.%m.%d}.  {sc['basis']}{tag}"
+
+    def reload_combo(self, select: int):
+        self.scheds.sort(key=lambda sc: sc["effective"])
+        today = date.today()
+        cur = max((i for i, sc in enumerate(self.scheds) if sc["effective"] <= today), default=None)
+        for i, sc in enumerate(self.scheds):
+            sc["_current"] = i == cur
+        self.sel.blockSignals(True)
+        self.sel.clear()
+        for sc in self.scheds:
+            self.sel.addItem(self.label(sc))
+        self.sel.blockSignals(False)
+        self.idx = -1
+        self.sel.setCurrentIndex(max(0, min(select, len(self.scheds) - 1)))
+        self.on_select(self.sel.currentIndex())
+
+    # ---- 표 ↔ 기준 데이터
+    def uid(self, r: int):
+        return self.t.item(r, 0).data(Qt.UserRole) if self.t.item(r, 0) else None
+
+    def store(self):
+        """표의 요금 칸 → 현재 선택한 기준."""
+        if not 0 <= self.idx < len(self.scheds):
+            return
+        fees = self.scheds[self.idx]["fees"]
+        for r in range(self.t.rowCount()):
+            vals = []
+            for c in self.cols:
+                d = digits(self.t.item(r, c).text() if self.t.item(r, c) else "")
+                vals.append(int(d) if d else 0)
+            fees[self.uid(r)] = tuple(vals)
+
+    def show_fees(self, r: int, default: tuple):
+        fees = self.scheds[self.idx]["fees"] if 0 <= self.idx < len(self.scheds) else {}
+        vals = fees.get(self.uid(r), default)
+        for c, v in zip(self.cols, vals):
+            self.t.item(r, c).setText(money(v))
+
+    def on_select(self, i: int):
+        if i == self.idx:
+            return
+        self.store()
+        self.idx = i
+        sc = self.scheds[i]
+        for w, val in ((self.eff, qd(sc["effective"])), (self.basis, sc["basis"])):
+            w.blockSignals(True)
+            w.setDate(val) if w is self.eff else w.setText(val)
+            w.blockSignals(False)
+        for r in range(self.t.rowCount()):
+            current = tuple(int(digits(self.t.item(r, c).text()) or 0) for c in self.cols)
+            self.show_fees(r, current)
+
+    def on_meta(self, *_):
+        sc = self.scheds[self.idx]
+        sc["effective"], sc["basis"] = pyd(self.eff.date()), self.basis.text().strip()
+        self.sel.setItemText(self.idx, self.label(sc))
+
+    def new_row_fees(self, uid, fees: tuple):
+        """새 줄: 모든 기준에 같은 요금으로 시작."""
+        for sc in self.scheds:
+            sc["fees"].setdefault(uid, fees)
+
+    def add_schedule(self):
+        self.store()
+        src = self.scheds[self.idx]
+        dlg = QDialog(self)
+        dlg.setWindowTitle(f"{self.what} 새 기준 등록 (개정)")
+        f = QFormLayout(dlg)
+        eff = make_date_edit(max(date.today(), src["effective"] + timedelta(days=1)))
+        basis = QLineEdit(src["basis"])
+        f.addRow("시행일", eff)
+        f.addRow("근거", basis)
+        f.addRow(QLabel(f"'{self.label(src).strip()}' 기준의 요금을 복사해 시작합니다.\n"
+                        "등록 후 요금 칸을 개정 요금으로 고치고 저장하세요."))
+        bb = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        bb.accepted.connect(dlg.accept)
+        bb.rejected.connect(dlg.reject)
+        f.addRow(bb)
+        if not dlg.exec():
+            return
+        new_eff = pyd(eff.date())
+        if any(sc["effective"] == new_eff for sc in self.scheds):
+            QMessageBox.warning(self, "새 기준 등록", f"{new_eff:%Y.%m.%d}. 시행 기준이 이미 있습니다.")
+            return
+        new = {"effective": new_eff, "basis": basis.text().strip() or src["basis"], "fees": dict(src["fees"])}
+        self.scheds.append(new)
+        self.reload_combo(sorted(self.scheds, key=lambda sc: sc["effective"]).index(new))
+
+    def delete_schedule(self):
+        if len(self.scheds) <= 1:
+            QMessageBox.information(self, "기준 삭제", "기준이 하나뿐이라 삭제할 수 없습니다.")
+            return
+        sc = self.scheds[self.idx]
+        if QMessageBox.question(self, "기준 삭제", f"'{self.label(sc).strip()}' 기준을 삭제할까요?\n"
+                                "(이미 저장한 견적의 금액은 바뀌지 않습니다)") != QMessageBox.Yes:
+            return
+        self.scheds.pop(self.idx)
+        self.idx = -1
+        self.reload_combo(0)
+
+    def validate(self):
+        dates = [sc["effective"] for sc in self.scheds]
+        if len(set(dates)) != len(dates):
+            raise ValueError(f"{self.what}: 시행일이 같은 기준이 두 개 있습니다.")
+        if any(not sc["basis"] for sc in self.scheds):
+            raise ValueError(f"{self.what}: 근거(예: 연수사업추진규칙)를 입력해 주세요.")
+
+
 # ---------------------------------------------------------------- 기준 관리
 class RateBookDialog(QDialog):
     ROOM_COLS = ["호실", "건물명", "층", "수용인원", "형태", "규모(구분)", "기본(3시간)", "추가 1시간당", "대관가능", "비고"]
@@ -716,8 +873,22 @@ class RateBookDialog(QDialog):
         self.setWindowTitle("시설·요금 기준 관리")
         self.resize(1150, 680)
         self.book, self.path = copy.deepcopy(book), path
+        self._uid = 0
         v = QVBoxLayout(self)
         v.addWidget(QLabel(f"기준 파일: {path}   (엑셀로 직접 수정해도 됩니다. 프로그램을 다시 열면 반영됩니다.)"))
+        # 시행일별 요금 기준 (줄 고유번호로 보관 → 호실 이름을 바꿔도 요금이 따라감)
+        room_uid = {r.name: self.next_uid() for r in self.book.rooms}
+        dorm_uid = {d.name: self.next_uid() for d in self.book.dorms}
+        fac_scheds = [{"effective": sc.effective, "basis": sc.basis,
+                       "fees": {room_uid[n]: f for n, f in sc.fees.items() if n in room_uid}}
+                      for sc in self.book.fac_schedules] or [
+            {"effective": DEFAULT_RULE_DATE, "basis": DEFAULT_RULE_NAME, "fees": {}}]
+        dorm_scheds = [{"effective": sc.effective, "basis": sc.basis,
+                        "fees": {dorm_uid[n]: (f,) for n, f in sc.fees.items() if n in dorm_uid}}
+                       for sc in self.book.dorm_schedules] or [
+            {"effective": DEFAULT_RULE_DATE, "basis": DEFAULT_RULE_NAME, "fees": {}}]
+        today_fac = self.book.fac_schedule_at(date.today())
+        today_dorm = self.book.dorm_schedule_at(date.today())
         tabs = QTabWidget()
         v.addWidget(tabs)
 
@@ -729,8 +900,12 @@ class RateBookDialog(QDialog):
         self.rooms.setHorizontalHeaderLabels(self.ROOM_COLS)
         for c, wd in enumerate([110, 80, 60, 80, 80, 200, 95, 95, 70, 220]):
             self.rooms.setColumnWidth(c, wd)
+        self.fac_ed = None
         for r in self.book.rooms:
-            self._add_room_row(r)
+            shown = today_fac.fees.get(r.name, (r.base_fee, r.extra_fee)) if today_fac else (r.base_fee, r.extra_fee)
+            self._add_room_row(replace(r, base_fee=shown[0], extra_fee=shown[1]), uid=room_uid[r.name])
+        self.fac_ed = ScheduleEditor(self.rooms, (6, 7), fac_scheds, "시설 사용료")
+        lv.addWidget(self.fac_ed)
         lv.addWidget(self.rooms)
         hb = QHBoxLayout()
         b_add = QPushButton("시설 추가 (선택한 줄 아래)")
@@ -759,11 +934,15 @@ class RateBookDialog(QDialog):
         self.dorms.setColumnWidth(0, 250)
         self.dorms.setColumnWidth(1, 120)
         for d in self.book.dorms:
-            self._add_simple(self.dorms, [d.name, money(d.fee)])
+            fee = today_dorm.fees.get(d.name, d.fee) if today_dorm else d.fee
+            self._add_simple(self.dorms, [d.name, money(fee)])
+            self.dorms.item(self.dorms.rowCount() - 1, 0).setData(Qt.UserRole, dorm_uid[d.name])
+        self.dorm_ed = ScheduleEditor(self.dorms, (1,), dorm_scheds, "기숙사 사용료")
+        lv.addWidget(self.dorm_ed)
         lv.addWidget(self.dorms)
         hb = QHBoxLayout()
         b = QPushButton("객실 구분 추가")
-        b.clicked.connect(lambda: self._add_simple(self.dorms, ["", "0"]))
+        b.clicked.connect(self._add_dorm_row)
         hb.addWidget(b)
         b = QPushButton("선택 삭제")
         b.clicked.connect(lambda: self._del_rows(self.dorms))
@@ -775,17 +954,20 @@ class RateBookDialog(QDialog):
         # 할인
         w = QWidget()
         lv = QVBoxLayout(w)
-        self.discs = QTableWidget(0, 3)
-        self.discs.setHorizontalHeaderLabels(["대상", "구분", "할인률(%) — 비우면 담당자 직접 선택"])
-        self.discs.setColumnWidth(0, 700)
-        self.discs.setColumnWidth(1, 90)
-        self.discs.setColumnWidth(2, 230)
+        lv.addWidget(QLabel("※ 근거 구분: <b>규정</b>(연수사업추진규칙 등, 근거=규정명·시행일) / "
+                            "<b>내부방침</b>(패밀리기업 지정 등, 근거=방침결재 문서번호·결재일). "
+                            "할인률을 비우면 담당자가 줄마다 할인률을 고릅니다."))
+        self.discs = QTableWidget(0, 6)
+        self.discs.setHorizontalHeaderLabels(["대상", "구분", "할인률(%)", "근거 구분", "근거 (규정명 / 결재 문서번호)",
+                                              "시행일 / 결재일"])
+        for c, wd in enumerate([520, 80, 80, 95, 230, 120]):
+            self.discs.setColumnWidth(c, wd)
         for d in self.book.discounts:
-            self._add_simple(self.discs, [d.name, d.category, "" if d.rate is None else f"{d.rate * 100:g}"])
+            self._add_disc_row(d)
         lv.addWidget(self.discs)
         hb = QHBoxLayout()
         b = QPushButton("할인 기준 추가")
-        b.clicked.connect(lambda: self._add_simple(self.discs, ["", "", ""]))
+        b.clicked.connect(lambda: self._add_disc_row(None))
         hb.addWidget(b)
         b = QPushButton("선택 삭제")
         b.clicked.connect(lambda: self._del_rows(self.discs))
@@ -819,9 +1001,39 @@ class RateBookDialog(QDialog):
         bb.rejected.connect(self.reject)
         v.addWidget(bb)
 
+    def next_uid(self) -> int:
+        self._uid += 1
+        return self._uid
+
+    def _add_disc_row(self, d: Discount | None):
+        from .model import Discount as D
+        d = d or D("", "", None, BASIS_POLICY, "", None)
+        t = self.discs
+        r = t.rowCount()
+        t.insertRow(r)
+        for c, val in enumerate([d.name, d.category, "" if d.rate is None else f"{d.rate * 100:g}"]):
+            t.setItem(r, c, QTableWidgetItem(val))
+        kind = QComboBox()
+        kind.addItems([BASIS_RULE, BASIS_POLICY])
+        kind.setCurrentText(d.basis_kind)
+        t.setCellWidget(r, 3, kind)
+        t.setItem(r, 4, QTableWidgetItem(d.basis))
+        t.setItem(r, 5, QTableWidgetItem(f"{d.basis_date:%Y.%m.%d}" if d.basis_date else ""))
+        if not d.name:
+            t.scrollToItem(t.item(r, 0))
+            t.setCurrentCell(r, 0)
+
+    def _add_dorm_row(self):
+        uid = self.next_uid()
+        self._add_simple(self.dorms, ["", "0"])
+        self.dorms.item(self.dorms.rowCount() - 1, 0).setData(Qt.UserRole, uid)
+        self.dorm_ed.new_row_fees(uid, (0,))
+
     def _insert_room(self):
         cur = self.rooms.currentRow()
-        self._add_room_row(None, at=cur + 1 if cur >= 0 else None)
+        uid = self.next_uid()
+        self._add_room_row(None, at=cur + 1 if cur >= 0 else None, uid=uid)
+        self.fac_ed.new_row_fees(uid, GROUP_FEES[FACILITY_GROUPS[0]])
 
     def _read_room_row(self, r: int) -> Room:
         def num(c):
@@ -840,18 +1052,19 @@ class RateBookDialog(QDialog):
         if r < 0 or not 0 <= target < t.rowCount():
             return
         col = max(0, t.currentColumn())
-        room = self._read_room_row(r)
+        room, uid = self._read_room_row(r), self.fac_ed.uid(r)
         t.removeRow(r)
-        self._add_room_row(room, at=target)
+        self._add_room_row(room, at=target, uid=uid)
         t.setCurrentCell(target, col)
 
-    def _add_room_row(self, room: Room | None, at: int | None = None):
+    def _add_room_row(self, room: Room | None, at: int | None = None, uid=None):
         t = self.rooms
         r = t.rowCount() if at is None else at
         t.insertRow(r)
         room = room or Room("", "", "", "", "강의실", FACILITY_GROUPS[0], *GROUP_FEES[FACILITY_GROUPS[0]])
         for c, val in enumerate([room.name, room.building, room.floor, room.capacity, room.kind]):
             t.setItem(r, c, QTableWidgetItem(val))
+        t.item(r, 0).setData(Qt.UserRole, uid)
         g = QComboBox()
         g.addItems(FACILITY_GROUPS)
         if room.group not in FACILITY_GROUPS:
@@ -915,9 +1128,13 @@ class RateBookDialog(QDialog):
             raise ValueError(f"숫자가 아닙니다: {s}")
 
     def save(self):
-        from .model import Discount, DormType
+        from .model import Discount, DormSchedule, DormType, FeeSchedule
         try:
-            rooms, seen = [], set()
+            self.fac_ed.store()
+            self.dorm_ed.store()
+            self.fac_ed.validate()
+            self.dorm_ed.validate()
+            rooms, seen, room_names = [], set(), {}
             for r in range(self.rooms.rowCount()):
                 name = self._txt(self.rooms, r, 0)
                 if not name:
@@ -925,24 +1142,43 @@ class RateBookDialog(QDialog):
                 if name in seen:
                     raise ValueError(f"호실 이름이 중복됩니다: {name}")
                 seen.add(name)
+                room_names[self.fac_ed.uid(r)] = name
                 rooms.append(Room(name, self._txt(self.rooms, r, 1), self._txt(self.rooms, r, 2),
                                   self._txt(self.rooms, r, 3), self._txt(self.rooms, r, 4),
                                   self.rooms.cellWidget(r, 5).currentText(),
                                   self._int(self._txt(self.rooms, r, 6)), self._int(self._txt(self.rooms, r, 7)),
                                   self.rooms.item(r, 8).checkState() == Qt.Checked, self._txt(self.rooms, r, 9)))
-            dorms = [DormType(self._txt(self.dorms, r, 0), self._int(self._txt(self.dorms, r, 1)))
-                     for r in range(self.dorms.rowCount()) if self._txt(self.dorms, r, 0)]
+            fac_scheds = [FeeSchedule(sc["effective"], sc["basis"],
+                                      {room_names[u]: tuple(f) for u, f in sc["fees"].items() if u in room_names})
+                          for sc in self.fac_ed.scheds]
+            dorms, dorm_names = [], {}
+            for r in range(self.dorms.rowCount()):
+                name = self._txt(self.dorms, r, 0)
+                if not name:
+                    continue
+                if name in dorm_names.values():
+                    raise ValueError(f"객실 구분이 중복됩니다: {name}")
+                dorm_names[self.dorm_ed.uid(r)] = name
+                dorms.append(DormType(name, self._int(self._txt(self.dorms, r, 1))))
+            dorm_scheds = [DormSchedule(sc["effective"], sc["basis"],
+                                        {dorm_names[u]: f[0] for u, f in sc["fees"].items() if u in dorm_names})
+                           for sc in self.dorm_ed.scheds]
             discs = []
             for r in range(self.discs.rowCount()):
                 name = self._txt(self.discs, r, 0)
                 if not name:
                     continue
                 rate = self._txt(self.discs, r, 2).replace("%", "")
-                discs.append(Discount(name, self._txt(self.discs, r, 1), None if rate == "" else float(rate) / 100))
+                when_txt = self._txt(self.discs, r, 5)
+                when = parse_date(when_txt)
+                if when_txt and when is None:
+                    raise ValueError(f"'{name}' 할인의 시행일/결재일 형식을 확인해 주세요 (예: 2025.03.01)")
+                discs.append(Discount(name, self._txt(self.discs, r, 1), None if rate == "" else float(rate) / 100,
+                                      self.discs.cellWidget(r, 3).currentText(), self._txt(self.discs, r, 4), when))
             sup = Supplier()
             for key, e in self.sup_edits.items():
                 setattr(sup, key, e.toPlainText() if isinstance(e, QPlainTextEdit) else e.text())
-            self.book = RateBook(rooms, dorms, discs, sup)
+            self.book = RateBook(rooms, dorms, discs, sup, fac_scheds, dorm_scheds)
             save_book(self.book, self.path)
         except PermissionError:
             QMessageBox.warning(self, "저장 실패", "기준 엑셀 파일이 열려 있습니다. 엑셀을 닫고 다시 저장해 주세요.")
@@ -960,6 +1196,7 @@ class MainWindow(QMainWindow):
         self.book, self.book_path = load_or_create()
         self.case = QuoteCase()
         self.current_rev: str | None = None
+        self._basis: dict = {}
         self.dirty = False
         self._loading = False
         self.resize(1360, 900)
@@ -1046,6 +1283,11 @@ class MainWindow(QMainWindow):
         pb.addWidget(b)
         self.price_banner.hide()
         root.addWidget(self.price_banner)
+        # 적용 기준 표시 (예: * 시설사용료 / 기숙사 : 연수사업추진규칙(2024.06.24.) 기준) — 화면에만 표시
+        self.basis_label = QLabel()
+        self.basis_label.setStyleSheet("color:#1F3864;font-weight:bold;padding:2px 4px")
+        self.basis_label.setToolTip("견적일자에 시행 중인 요금 기준 (저장된 견적은 저장 당시 기준)")
+        root.addWidget(self.basis_label)
 
         # 예약정보
         g = QGroupBox("예약 정보")
@@ -1109,7 +1351,7 @@ class MainWindow(QMainWindow):
         self.e_bizno.editingFinished.connect(self.check_biz_history)
         self.start_date.dateChanged.connect(self.on_changed)
         self.end_date.dateChanged.connect(self.on_changed)
-        self.quote_date.dateChanged.connect(self.on_changed)
+        self.quote_date.dateChanged.connect(self.on_quote_date_changed)
         self.auto_period.toggled.connect(self.on_changed)
         self.discount.currentTextChanged.connect(self.on_discount_changed)
 
@@ -1186,6 +1428,10 @@ class MainWindow(QMainWindow):
             self.discount.setItemData(i, self.discount.itemText(i), Qt.ToolTipRole)
 
     # ---- 상태 도우미
+    def quote_on(self) -> date:
+        """요금 기준을 고르는 날짜 = 견적일자 (그날 시행 중인 기준 적용)."""
+        return pyd(self.quote_date.date())
+
     def default_date(self) -> date:
         return pyd(self.start_date.date())
 
@@ -1211,9 +1457,14 @@ class MainWindow(QMainWindow):
             start_date=pyd(self.start_date.date()), end_date=pyd(self.end_date.date()),
             quote_date=pyd(self.quote_date.date()), revision=self.current_rev or self.case.next_revision(),
             final=self.final_chk.isChecked(), memo=self.memo.text().strip(),
-            discount=self.discount.currentText(), facilities=self.fac.uses(), dorms=self.dorm.uses())
+            discount=self.discount.currentText(), facilities=self.fac.uses(), dorms=self.dorm.uses(),
+            fac_basis=self._basis.get("fac", ""), dorm_basis=self._basis.get("dorm", ""),
+            disc_basis=self._basis.get("disc", "") if self._basis.get("discount") == self.discount.currentText()
+            else "")
 
     def load_quote(self, q: Quote):
+        # 저장 당시 적용 기준 (화면 상단 표시용, 다시 계산하면 지움)
+        self._basis = {"fac": q.fac_basis, "dorm": q.dorm_basis, "disc": q.disc_basis, "discount": q.discount}
         self._loading = True
         try:
             self.e_company.setText(q.company)
@@ -1251,13 +1502,18 @@ class MainWindow(QMainWindow):
         diffs = price_differences(self.collect(), self.book)
         if diffs:
             shown = diffs[:4] + ([f"외 {len(diffs) - 4}건"] if len(diffs) > 4 else [])
+            now = self.book.fac_schedule_at(date.today())
             self.price_label.setText("이 견적은 <b>저장 당시 요금·할인율 기준</b>으로 계산되어 있습니다 "
-                                     "(이후 기준이 변경됨).<br>" + " · ".join(shown) +
+                                     f"(현재 시행 기준: {now.label() if now else '-'}).<br>" + " · ".join(shown) +
                                      "<br>이전 금액을 유지하려면 그대로 두고, 현재 기준을 적용하려면 오른쪽 버튼을 누르세요.")
         self.price_banner.setVisible(bool(diffs))
 
     def reprice_current(self):
-        """저장 당시 요금을 버리고 현재 [시설·요금 기준]과 할인율로 다시 계산 (저장은 담당자가)."""
+        """저장 당시 요금을 버리고 오늘 시행 중인 [시설·요금 기준]과 할인율로 다시 계산 (저장은 담당자가)."""
+        self._basis = {}
+        self._loading = True
+        self.quote_date.setDate(qd(date.today()))      # 견적일자를 오늘로 → 오늘 시행 기준 적용
+        self._loading = False
         for r in range(self.fac.rowCount()):
             self.fac.item(r, self.fac.C_BLD).setData(Qt.UserRole, None)
         for r in range(self.dorm.rowCount()):
@@ -1267,7 +1523,8 @@ class MainWindow(QMainWindow):
         self.recalc()
         self.set_dirty(True)
         self.price_banner.hide()
-        self.statusBar().showMessage("현재 요금 기준으로 다시 계산했습니다. 저장해야 견적에 반영됩니다.", 8000)
+        self.statusBar().showMessage("견적일자를 오늘로 바꾸고 현재 시행 기준으로 다시 계산했습니다. "
+                                     "저장해야 견적에 반영됩니다.", 8000)
 
     # ---- 이벤트
     def on_changed(self, *_):
@@ -1282,6 +1539,14 @@ class MainWindow(QMainWindow):
                                                         table.cellWidget(r, table.C_ROOM)):
                         # 날짜·호실을 바꾸면 자동 정렬 (위젯 신호 처리가 끝난 뒤 실행)
                         QTimer.singleShot(0, lambda row=r: self.fac.sort_rows(row))
+        self.recalc()
+        self.set_dirty(True)
+
+    def on_quote_date_changed(self, *_):
+        if self._loading:
+            return
+        self.fac.refresh_all(force=False)     # 견적일자에 시행 중인 요금 기준으로 다시 계산
+        self.dorm.refresh_all(force=False)
         self.recalc()
         self.set_dirty(True)
 
@@ -1333,6 +1598,12 @@ class MainWindow(QMainWindow):
                 self.end_date.setDate(qd(max(dates)))
                 self._loading = was
         res = calculate(q, self.book)
+        fac, dorm, dis = applied_basis(q, self.book)
+        parts = ([f"* 시설사용료 / 기숙사 : {fac} 기준"] if fac == dorm else
+                 [f"* 시설사용료 : {fac or '-'} 기준", f"* 기숙사 : {dorm or '-'} 기준"])
+        if q.discount and q.discount != NO_DISCOUNT:
+            parts.append(f"* 할인 : {dis or '근거 미입력'} 기준")
+        self.basis_label.setText("     ".join(parts))
         self.sum_labels["A"].setText(money(res.facility_sum.total))
         self.sum_labels["B"].setText(money(res.dorm_sum.total))
         self.sum_labels["C"].setText(money(res.subtotal))
@@ -1470,6 +1741,7 @@ class MainWindow(QMainWindow):
             self.case = QuoteCase()
             self.current_rev = None
             q.revision = "01"
+            q.quote_date = max(q.quote_date, date.today())
             as_new = False
         # 대관기간이 지금 열린 견적과 다르면 다른 대관으로 볼지 확인 (기본: 새 견적 건으로 따로 저장)
         base = self.case.version(self.current_rev) if self.current_rev else None
@@ -1488,11 +1760,14 @@ class MainWindow(QMainWindow):
                 self.case = QuoteCase()
                 self.current_rev = None
                 q.revision = "01"
+                q.quote_date = max(q.quote_date, date.today())
                 as_new = False
             elif box.clickedButton() is not b_same:
                 return False
         if as_new and (self.current_rev is None or self.case.is_archived()):
             as_new = False      # 첫 저장은 01차, 보관 견적은 현재(최종) 견적에 덮어쓰기
+        if (as_new or self.current_rev is None) and self.case.versions and q.quote_date < date.today():
+            q.quote_date = date.today()     # 새 차수·새 견적은 오늘 견적 → 오늘 시행 중인 기준 적용
         if as_new:
             memo = self.memo.text().strip()
             if memo and self.case.version(self.current_rev) and self.case.version(self.current_rev).quote.memo == memo:

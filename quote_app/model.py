@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass, field, asdict
+from dataclasses import asdict, dataclass, field, replace
 from datetime import date, time, datetime
 
 BASE_HOURS = 3      # 기본요금에 포함되는 시간
@@ -44,15 +44,58 @@ class DormType:
     fee: int             # 1박 사용료
 
 
+BASIS_RULE = "규정"          # 연수사업추진규칙 등 규정에 따른 할인
+BASIS_POLICY = "내부방침"    # 패밀리기업 지정 등 내부 방침결재에 따른 할인
+DEFAULT_RULE_NAME = "연수사업추진규칙"
+DEFAULT_RULE_DATE = date(2024, 6, 24)   # 「연수원 시설 및 장비 사용료」 최근 개정일
+
+
+def fmt_dot(d: date | None) -> str:
+    return f"{d:%Y.%m.%d}." if d else ""
+
+
 @dataclass
 class Discount:
     name: str            # 대상
     category: str        # 구분 (면 제 / 50%감면 / 할인)
     rate: float | None   # 0~1, None 이면 담당자가 행별로 선택(패밀리기업)
+    basis_kind: str = BASIS_RULE        # 규정 / 내부방침
+    basis: str = DEFAULT_RULE_NAME       # 규정명 또는 방침결재 문서번호
+    basis_date: date | None = DEFAULT_RULE_DATE   # 규정 시행일 또는 결재일
 
     @property
     def is_manual(self) -> bool:
         return self.rate is None
+
+    def basis_text(self) -> str:
+        """예) 연수사업추진규칙(2024.06.24.) / 내부방침 결재 연수원-1234(2025.03.01.)"""
+        if self.basis_kind == BASIS_POLICY:
+            head = f"내부방침 결재 {self.basis}" if self.basis else "내부방침 결재(문서번호 미입력)"
+        else:
+            head = self.basis or DEFAULT_RULE_NAME
+        return f"{head}({fmt_dot(self.basis_date)})" if self.basis_date else head
+
+
+@dataclass
+class FeeSchedule:
+    """시설 사용료 기준 (시행일별). fees: 호실 → (기본 3시간, 추가 1시간당)"""
+    effective: date
+    basis: str
+    fees: dict[str, tuple[int, int]]
+
+    def label(self) -> str:
+        return f"{self.basis}({fmt_dot(self.effective)})"
+
+
+@dataclass
+class DormSchedule:
+    """기숙사 사용료 기준 (시행일별). fees: 객실 구분 → 1박 사용료"""
+    effective: date
+    basis: str
+    fees: dict[str, int]
+
+    def label(self) -> str:
+        return f"{self.basis}({fmt_dot(self.effective)})"
 
 
 @dataclass
@@ -82,18 +125,58 @@ class Supplier:
                          " · 기숙사 : 50%, 한도 5개실")
 
 
+def _schedule_at(schedules, on: date | None):
+    """on 날짜에 시행 중인 기준 (시행일 ≤ on 중 가장 최근). 그보다 이른 날짜면 가장 오래된 기준."""
+    if not schedules:
+        return None
+    ordered = sorted(schedules, key=lambda s: s.effective)
+    on = on or date.today()
+    valid = [s for s in ordered if s.effective <= on]
+    return valid[-1] if valid else ordered[0]
+
+
 @dataclass
 class RateBook:
-    rooms: list[Room]
-    dorms: list[DormType]
+    rooms: list[Room]            # 시설 목록(순서·정보). 요금은 시행일별 fac_schedules 에서 찾는다
+    dorms: list[DormType]        # 객실 구분 목록. 요금은 dorm_schedules 에서 찾는다
     discounts: list[Discount]
     supplier: Supplier
+    fac_schedules: list[FeeSchedule] = field(default_factory=list)
+    dorm_schedules: list[DormSchedule] = field(default_factory=list)
 
     def room(self, name: str) -> Room | None:
+        """시설 정보 (요금은 room_at 으로 날짜별로 조회)."""
         return next((r for r in self.rooms if r.name == name), None)
 
     def dorm(self, name: str) -> DormType | None:
         return next((d for d in self.dorms if d.name == name), None)
+
+    # ---- 시행일 기준 요금
+    def fac_schedule_at(self, on: date | None = None) -> FeeSchedule | None:
+        return _schedule_at(self.fac_schedules, on)
+
+    def dorm_schedule_at(self, on: date | None = None) -> DormSchedule | None:
+        return _schedule_at(self.dorm_schedules, on)
+
+    def room_at(self, name: str, on: date | None = None) -> Room | None:
+        """on(견적일자)에 시행 중인 요금을 넣은 시설 정보."""
+        room = self.room(name)
+        if room is None:
+            return None
+        sched = self.fac_schedule_at(on)
+        if sched and name in sched.fees:
+            base, extra = sched.fees[name]
+            return replace(room, base_fee=base, extra_fee=extra)
+        return room
+
+    def dorm_at(self, name: str, on: date | None = None) -> DormType | None:
+        d = self.dorm(name)
+        if d is None:
+            return None
+        sched = self.dorm_schedule_at(on)
+        if sched and name in sched.fees:
+            return DormType(name, sched.fees[name])
+        return d
 
     def discount(self, name: str) -> Discount | None:
         return next((d for d in self.discounts if d.name == name), None)
@@ -147,6 +230,10 @@ class Quote:
     quote_date: date = field(default_factory=date.today)
     revision: str = "01"          # 견적차수
     final: bool = False           # 최종견적 여부 (False = 가견적)
+    # 저장 당시 적용 기준 (예: 연수사업추진규칙(2024.06.24.)) — 화면 상단 표시용
+    fac_basis: str = ""
+    dorm_basis: str = ""
+    disc_basis: str = ""
     memo: str = ""                # 차수별 변경 메모 (견적서에는 표시 안 함)
     discount: str = NO_DISCOUNT
     facilities: list[FacilityUse] = field(default_factory=list)
@@ -174,7 +261,7 @@ class Quote:
 
         q = cls()
         for k in ("company", "biz_no", "ceo", "cafeteria", "contact", "office", "mobile",
-                  "email", "revision", "discount", "memo"):
+                  "email", "revision", "discount", "memo", "fac_basis", "dorm_basis", "disc_basis"):
             if k in d:
                 setattr(q, k, d[k])
         q.final = bool(d.get("final", False))
@@ -319,17 +406,27 @@ def room_snapshot(room: Room) -> dict:
     return {k: getattr(room, k) for k in SNAP_KEYS}
 
 
-def line_room(u: FacilityUse, book: RateBook) -> Room | None:
-    """저장 당시 기준이 있으면 그 요금·정보로, 없으면 현재 기준으로 계산할 호실 정보."""
+def line_room(u: FacilityUse, book: RateBook, on: date | None = None) -> Room | None:
+    """저장 당시 기준이 있으면 그 요금·정보로, 없으면 on(견적일자)에 시행 중인 기준으로."""
     if u.snap:
         return Room(u.room, **{k: u.snap.get(k, "" if k in ("kind",) else 0) for k in SNAP_KEYS})
-    return book.room(u.room)
+    return book.room_at(u.room, on)
 
 
-def line_dorm(u: DormUse, book: RateBook) -> DormType | None:
+def line_dorm(u: DormUse, book: RateBook, on: date | None = None) -> DormType | None:
     if u.fee is not None:
         return DormType(u.dorm, u.fee)
-    return book.dorm(u.dorm)
+    return book.dorm_at(u.dorm, on)
+
+
+def applied_basis(q: "Quote", book: RateBook) -> tuple[str, str, str]:
+    """화면 상단에 보여줄 (시설, 기숙사, 할인) 적용 기준. 저장 당시 기준이 있으면 그것을, 없으면 견적일자 기준."""
+    fs, ds = book.fac_schedule_at(q.quote_date), book.dorm_schedule_at(q.quote_date)
+    fac = q.fac_basis if q.fac_basis and all(u.snap for u in q.facilities) else (fs.label() if fs else "")
+    dorm = q.dorm_basis if q.dorm_basis and all(u.fee is not None for u in q.dorms) else (ds.label() if ds else "")
+    disc = book.discount(q.discount)
+    dis = q.disc_basis or (disc.basis_text() if disc else "")
+    return fac, dorm, dis
 
 
 def freeze_prices(q: Quote, book: RateBook, reprice: bool) -> None:
@@ -340,30 +437,38 @@ def freeze_prices(q: Quote, book: RateBook, reprice: bool) -> None:
     uniform = None if disc is None or disc.rate is None else disc.rate
     if q.discount == NO_DISCOUNT:
         uniform = 0.0
+    on = q.quote_date
     for u in q.facilities:
         if reprice or not u.snap:
-            room = book.room(u.room)
+            room = book.room_at(u.room, on)
             u.snap = room_snapshot(room) if room else None
             if reprice and uniform is not None:
                 u.rate = uniform
     for u in q.dorms:
         if reprice or u.fee is None:
-            d = book.dorm(u.dorm)
+            d = book.dorm_at(u.dorm, on)
             u.fee = d.fee if d else None
             if reprice and uniform is not None:
                 u.rate = uniform
+    fs, ds = book.fac_schedule_at(on), book.dorm_schedule_at(on)
+    if reprice or not q.fac_basis:
+        q.fac_basis = fs.label() if fs else ""
+    if reprice or not q.dorm_basis:
+        q.dorm_basis = ds.label() if ds else ""
+    if reprice or not q.disc_basis:
+        q.disc_basis = disc.basis_text() if disc else ""
 
 
-def price_differences(q: Quote, book: RateBook) -> list[str]:
-    """저장 당시 기준과 현재 기준이 다른 항목 설명 (없으면 빈 목록)."""
+def price_differences(q: Quote, book: RateBook, on: date | None = None) -> list[str]:
+    """저장 당시 기준과 on(기본: 오늘)에 시행 중인 기준이 다른 항목 설명 (없으면 빈 목록)."""
     out = []
     for u in q.facilities:
-        cur = book.room(u.room)
+        cur = book.room_at(u.room, on)
         if u.snap and cur and (u.snap["base_fee"], u.snap["extra_fee"]) != (cur.base_fee, cur.extra_fee):
             out.append(f"{u.room}: 기본 {u.snap['base_fee']:,}/추가 {u.snap['extra_fee']:,} → "
                        f"기본 {cur.base_fee:,}/추가 {cur.extra_fee:,}")
     for u in q.dorms:
-        cur = book.dorm(u.dorm)
+        cur = book.dorm_at(u.dorm, on)
         if u.fee is not None and cur and u.fee != cur.fee:
             out.append(f"기숙사 {u.dorm}: 1박 {u.fee:,} → {cur.fee:,}")
     disc = book.discount(q.discount)
@@ -377,7 +482,7 @@ def price_differences(q: Quote, book: RateBook) -> list[str]:
 def calculate(q: Quote, book: RateBook) -> QuoteResult:
     f_lines: list[FacilityLine] = []
     for u in q.facilities:
-        room = line_room(u, book)
+        room = line_room(u, book, q.quote_date)
         hours = billable_hours(u.start, u.end)
         fee = facility_fee(room, hours) if room else 0
         vat = won(fee * VAT_RATE)
@@ -386,7 +491,7 @@ def calculate(q: Quote, book: RateBook) -> QuoteResult:
 
     d_lines: list[DormLine] = []
     for u in q.dorms:
-        dorm = line_dorm(u, book)
+        dorm = line_dorm(u, book, q.quote_date)
         nights = max(0, (u.check_out - u.check_in).days)
         fee = dorm.fee * nights * u.count if dorm else 0
         vat = won(fee * VAT_RATE)
